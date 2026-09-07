@@ -15,6 +15,32 @@ let categoriesData: Array<{ category: string; count: number }> = [];
 let sourcesData: Array<any> = [];
 let allNewsData: Array<any> = [];
 
+const entities: Record<string, string> = {
+  '&#8220;': '"',
+  '&#8221;': '"',
+  '&#8216;': "'",
+  '&#8217;': "'",
+  '&#8211;': "-",
+  '&#8212;': "--",
+  '&quot;': '"',
+  '&apos;': "'",
+  '&lt;': '<',
+  '&gt;': '>',
+  '&amp;': '&',
+  '&#039;': "'",
+  '&nbsp;': ' ',
+};
+
+const decodeHtml = (text: string) => {
+  if (!text) return "";
+  return text.replace(/&#?\w+;/g, match => entities[match] || match);
+};
+
+const slugify = (text: string) => {
+  if (!text) return "";
+  return text.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w-]+/g, '').replace(/--+/g, '-');
+};
+
 try {
   const catPath = path.join(process.cwd(), "src", "data", "categories.json");
   if (fs.existsSync(catPath)) {
@@ -28,8 +54,12 @@ try {
   if (fs.existsSync(newsPath)) {
     const rawNews = JSON.parse(fs.readFileSync(newsPath, "utf-8"));
     const seen = new Set<string>();
-    allNewsData = rawNews.filter((item: any) => {
-      const key = item.id || item.link || item.title;
+    allNewsData = rawNews.map((item: any) => ({
+      ...item,
+      title: decodeHtml(item.title),
+      slug: item.slug || slugify(decodeHtml(item.title) || `post-${item.id || Date.now()}`)
+    })).filter((item: any) => {
+      const key = item.id || item.link || item.slug;
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -50,6 +80,84 @@ try {
 function getSiteUrl(req: express.Request): string {
   return process.env.APP_URL || process.env.VITE_APP_URL || `${req.protocol}://${req.get("host")}`;
 }
+
+// Background sync function
+async function syncAllNewsFromSources() {
+  try {
+    console.log("Starting background sync for all news sources...");
+    let newItems: any[] = [];
+    
+    const chunkSize = 10;
+    for (let i = 0; i < sourcesData.length; i += chunkSize) {
+      const chunk = sourcesData.slice(i, i + chunkSize);
+      const promises = chunk.map(async (source) => {
+        if (!source.id) return [];
+        try {
+          const url = `https://api-news-media.netlify.app/api/news/${source.id}?api_key=bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd&per_page=100`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data)) {
+              return data.map(item => ({
+                ...item,
+                sourceId: source.id,
+                sourceSite: source.site,
+                category: source.category
+              }));
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+        return [];
+      });
+      const results = await Promise.all(promises);
+      results.forEach(res => newItems.push(...res));
+    }
+
+    if (newItems.length > 0) {
+      const seen = new Set<string>();
+      
+      const merged = [...newItems, ...allNewsData].map((item: any) => ({
+        ...item,
+        title: decodeHtml(item.title),
+        slug: item.slug || slugify(decodeHtml(item.title) || `post-${item.id || Date.now()}`)
+      })).filter((item: any) => {
+        const key = item.id || item.link || item.slug;
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      merged.sort((a: any, b: any) => {
+        const timeA = new Date(a.pubDate || a.date || 0).getTime();
+        const timeB = new Date(b.pubDate || b.date || 0).getTime();
+        return timeB - timeA;
+      });
+
+      allNewsData = merged;
+      
+      const counts: Record<string, number> = {};
+      allNewsData.forEach(n => {
+        const cat = n.category || "Geral";
+        counts[cat] = (counts[cat] || 0) + 1;
+      });
+      
+      const uniqueCats = Array.from(new Set(sourcesData.map((s: any) => s.category).filter(Boolean)));
+      categoriesData = uniqueCats.map(cat => ({
+        category: String(cat),
+        count: counts[String(cat)] || 0
+      })).sort((a, b) => a.category.localeCompare(b.category));
+      
+      console.log(`Sync complete. Total news items: ${allNewsData.length}`);
+    }
+  } catch (err) {
+    console.error("Error syncing news:", err);
+  }
+}
+
+// Start sync in background
+setTimeout(syncAllNewsFromSources, 2000);
 
 // -------------------------------------------------------------
 // API Routes

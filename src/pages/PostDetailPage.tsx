@@ -41,12 +41,9 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
   const readingTime = calculateReadingTime(post.content || post.description);
   const currentUrl = typeof window !== "undefined" ? window.location.href : "";
 
-  // Strip embedded <img> and <figure> tags from post.content to ensure only one single featured image is displayed per post
   const sanitizedContent = useMemo(() => {
     if (!post.content) return "";
     return post.content
-      .replace(/<figure[^>]*>[\s\S]*?<\/figure>/gi, "")
-      .replace(/<img[^>]*>/gi, "")
       .replace(/(<br\s*\/?>\s*){3,}/gi, "<br /><br />")
       .trim();
   }, [post.content]);
@@ -186,24 +183,26 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
       </div>
 
       {/* Featured Image */}
-      <div className="w-full rounded-2xl overflow-hidden border border-blue-900/40 bg-slate-950 relative shadow-2xl">
-        <img
-          src={thumbnail}
-          alt={post.title}
-          referrerPolicy="no-referrer"
-          className="w-full h-[320px] sm:h-[420px] object-cover object-center"
-        />
-        <div className="p-2.5 bg-slate-950 text-[11px] text-slate-400 flex items-center justify-between border-t border-slate-900">
-          <span>Registro fotográfico editorial • Arquivo institucional</span>
-          <span>Foto ilustrativa • Norma Jurídica</span>
+      {thumbnail && (
+        <div className="w-full rounded-2xl overflow-hidden border border-blue-900/40 bg-slate-950 relative shadow-2xl">
+          <img
+            src={thumbnail}
+            alt={post.title}
+            referrerPolicy="no-referrer"
+            className="w-full h-[320px] sm:h-[420px] object-cover object-center"
+          />
+          <div className="p-2.5 bg-slate-950 text-[11px] text-slate-400 flex items-center justify-between border-t border-slate-900">
+            <span>Registro fotográfico original da fonte</span>
+            <span>Norma Jurídica</span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Post Content Body */}
       <div className="bg-slate-900/90 border border-blue-900/30 rounded-2xl p-6 sm:p-8 space-y-6 text-slate-200 leading-relaxed font-sans text-base">
         {sanitizedContent ? (
           <div
-            className="prose prose-invert prose-blue max-w-none text-justify space-y-4 [&>p]:text-justify [&>p]:leading-relaxed [&>p]:text-slate-200 [&>p]:text-base [&>h2]:text-xl [&>h2]:font-bold [&>h2]:text-white [&>h3]:text-lg [&>h3]:font-semibold [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>a]:text-blue-400 [&>a]:underline"
+            className="prose prose-invert prose-blue max-w-none text-justify space-y-4 [&>p]:text-justify [&>p]:leading-relaxed [&>p]:text-slate-200 [&>p]:text-base [&>h2]:text-xl [&>h2]:font-bold [&>h2]:text-white [&>h3]:text-lg [&>h3]:font-semibold [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>a]:text-blue-400 [&>a]:underline [&_img]:max-w-full [&_img]:rounded-xl [&_img]:my-6 [&_img]:mx-auto [&_figure]:my-6"
             dangerouslySetInnerHTML={{ __html: sanitizedContent }}
           />
         ) : (
@@ -239,16 +238,6 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
           </div>
         )}
 
-        {/* Legal Disclaimer */}
-        <div className="p-4 rounded-xl bg-blue-950/40 border border-blue-900/40 text-xs text-slate-300">
-          <div className="flex items-center gap-1.5 font-semibold text-blue-300 mb-1">
-            <Scale className="w-4 h-4" />
-            <span>Aviso de Responsabilidade Editorial</span>
-          </div>
-          <p className="text-[11px] text-slate-400 leading-relaxed text-justify">
-            As informações contidas neste portal possuem finalidade estritamente jornalística e informativa. Não constituem consultoria jurídica formal. Pedidos de retificação ou dúvidas podem ser submetidos através de nossa Ouvidoria e canais de atendimento.
-          </p>
-        </div>
       </div>
 
       {/* Related Posts Section */}
@@ -268,12 +257,18 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
                   className="group cursor-pointer bg-slate-900 border border-slate-800 hover:border-blue-700/60 rounded-xl overflow-hidden transition-all shadow-sm"
                 >
                   <div className="w-full h-28 overflow-hidden bg-slate-950">
-                    <img
-                      src={rThumb}
-                      alt={r.title}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                    />
+                    {rThumb ? (
+                      <img
+                        src={rThumb}
+                        alt={r.title}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-slate-800/50">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-600">Sem Imagem</span>
+                      </div>
+                    )}
                   </div>
                   <div className="p-3">
                     <span className="text-[10px] text-blue-400 font-semibold uppercase">{r.category}</span>

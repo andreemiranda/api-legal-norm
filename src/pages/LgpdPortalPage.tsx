@@ -156,7 +156,7 @@ export const LgpdPortalPage: React.FC<LgpdPortalPageProps> = ({
               Requerimento Protocolado com Sucesso!
             </h3>
             <p className="text-xs text-slate-300 max-w-lg mx-auto">
-              Seu pedido foi registrado em nossa Ouvidoria e o Encarregado (DPO) responderá formalmente no prazo legal de até 15 (quinze) dias, nos termos do Art. 19 da LGPD.
+              Seu pedido foi registrado em nossos canais de atendimento e o Encarregado (DPO) responderá formalmente no prazo legal de até 15 (quinze) dias, nos termos do Art. 19 da LGPD.
             </p>
             <div className="inline-block bg-slate-900 border border-emerald-600/60 px-4 py-2 rounded-lg text-sm font-mono text-emerald-300 font-bold">
               Protocolo nº: {protocol}
@@ -264,7 +264,7 @@ export const LgpdPortalPage: React.FC<LgpdPortalPageProps> = ({
                 <option value="eliminacao_consentimento">Art. 18, VI - Eliminação dos dados pessoais tratados sob consentimento</option>
                 <option value="compartilhamento">Art. 18, VII - Informação sobre entidades públicas/privadas com quem compartilhamos</option>
                 <option value="revogacao">Art. 18, IX - Revogação formal de consentimento prévio</option>
-                <option value="outros">Outra manifestação junto à Ouvidoria / DPO</option>
+                <option value="outros">Outra manifestação junto à Contato / DPO</option>
               </select>
             </div>
 

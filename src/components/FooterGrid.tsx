@@ -55,13 +55,19 @@ export const FooterGrid: React.FC<FooterGridProps> = ({ news, onSelectNews }) =>
               >
                 {/* Thumbnail Image */}
                 <div className="w-full h-32 relative bg-slate-950 overflow-hidden">
-                  <img
-                    src={thumbnail}
-                    alt={item.title}
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
+                  {thumbnail ? (
+                    <img
+                      src={thumbnail}
+                      alt={item.title}
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-slate-800/50">
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-600">Sem Imagem</span>
+                    </div>
+                  )}
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-80" />
 
                   <span className="absolute top-2 left-2 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-600 text-white shadow-sm">

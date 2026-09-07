@@ -3,7 +3,7 @@ import { useConsent } from "../context/ConsentContext";
 import { ExternalLink, ShieldAlert } from "lucide-react";
 
 interface AdSenseBannerProps {
-  slotType: "header" | "sidebar" | "in-article" | "footer";
+  slotType: "header" | "sidebar" | "in-article" | "footer" | "sidebar-bottom";
   className?: string;
 }
 
@@ -34,6 +34,13 @@ export const AdSenseBanner: React.FC<AdSenseBannerProps> = ({ slotType, classNam
       "2345678901";
     dimensions = "min-h-[250px] w-full";
     label = "Barra Lateral (AdSlot Sidebar 300x250)";
+  } else if (slotType === "sidebar-bottom") {
+    slotId =
+      import.meta.env.VITE_GOOGLE_ADSENSE_SLOT_SIDEBAR_BOTTOM ||
+      import.meta.env.GOOGLE_ADSENSE_SLOT_SIDEBAR_BOTTOM ||
+      "9876543210";
+    dimensions = "min-h-[250px] w-full";
+    label = "Barra Lateral Inferior (AdSlot Sidebar-Bottom 300x250)";
   } else if (slotType === "in-article") {
     slotId =
       import.meta.env.VITE_GOOGLE_ADSENSE_SLOT_IN_ARTICLE ||

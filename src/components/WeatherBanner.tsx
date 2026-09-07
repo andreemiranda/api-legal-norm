@@ -191,7 +191,7 @@ export const WeatherBanner: React.FC = () => {
       <div className="flex items-center justify-between border-b border-blue-800/40 pb-2.5 mb-3">
         <div className="flex items-center gap-1.5 text-xs text-blue-300 font-semibold uppercase tracking-wider">
           <MapPin className="w-3.5 h-3.5 text-blue-400" />
-          <span>Tempo na Sua Cidade</span>
+          <span>{weather ? `Tempo em ${weather.city}` : "Tempo Local"}</span>
         </div>
 
         <div className="flex items-center gap-1">

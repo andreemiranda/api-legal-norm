@@ -54,7 +54,7 @@ export const Footer: React.FC<FooterProps> = ({
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed">
-              Portal de Notícias Avançado e Responsivo. Plataforma digital completa de jornalismo moderno, desenvolvida com foco em alta performance, monetização ética e rigorosa conformidade jurídica com a LGPD (Lei nº 13.709/2018).
+              Portal de Notícias Avançado e Responsivo. Plataforma digital completa de jornalismo moderno, desenvolvida com foco em alta performance e conteúdo jornalístico de qualidade.
             </p>
 
             <div className="pt-2 text-[11px] text-slate-500 space-y-1">
@@ -136,11 +136,11 @@ export const Footer: React.FC<FooterProps> = ({
             </ul>
           </div>
 
-          {/* Column 3: Institutional & Ouvidoria */}
+          {/* Column 3: Institutional Institutional & Ouvidoria Contato */}
           <div>
             <h4 className="font-serif text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2 border-b border-blue-900/40 pb-2">
               <Mail className="w-4 h-4 text-blue-400" />
-              <span>Ouvidoria & Contato</span>
+              <span>Contato</span>
             </h4>
 
             <ul className="space-y-2 text-xs">
@@ -176,30 +176,6 @@ export const Footer: React.FC<FooterProps> = ({
             </h4>
 
             <ul className="space-y-2 text-xs">
-              <li>
-                <a
-                  href="/ads.txt"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-between text-slate-300 hover:text-blue-300 transition-colors"
-                >
-                  <span>Arquivo ads.txt (Google AdSense)</span>
-                  <ExternalLink className="w-3 h-3 text-slate-500" />
-                </a>
-              </li>
-
-              <li>
-                <a
-                  href="/robots.txt"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-between text-slate-300 hover:text-blue-300 transition-colors"
-                >
-                  <span>Arquivo robots.txt</span>
-                  <ExternalLink className="w-3 h-3 text-slate-500" />
-                </a>
-              </li>
-
               <li>
                 <a
                   href="/sitemap.xml"

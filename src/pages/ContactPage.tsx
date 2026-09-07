@@ -87,7 +87,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onBack, onNavigateToLg
       <div className="border-b border-blue-900/50 pb-6">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-950 text-blue-300 border border-blue-800/60 text-xs font-semibold uppercase tracking-wider mb-3">
           <Mail className="w-4 h-4 text-blue-400" />
-          <span>Fale com a Redação & Ouvidoria</span>
+          <span>Fale com a Redação & Contato</span>
         </div>
 
         <h1 className="font-serif text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
@@ -116,9 +116,9 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onBack, onNavigateToLg
               <div className="flex items-start gap-2">
                 <Mail className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
                 <div>
-                  <span className="text-slate-400">E-mail Ouvidoria / DPO:</span>
+                  <span className="text-slate-400">E-mail de Contato:</span>
                   <br />
-                  <code className="text-blue-300 font-mono">ouvidoria.camarapa@gmail.com</code>
+                  <code className="text-blue-300 font-mono">contato@normajuridica.com.br</code>
                 </div>
               </div>
 
@@ -156,7 +156,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onBack, onNavigateToLg
                 Mensagem Transmitida com Sucesso!
               </h3>
               <p className="text-xs text-slate-300 max-w-md mx-auto">
-                Sua comunicação foi despachada para a caixa postal da ouvidoria (<code className="text-emerald-300 font-mono">ouvidoria.camarapa@gmail.com</code>) através do servidor SMTP integrado.
+                Sua comunicação foi despachada para a nossa caixa postal (<code className="text-emerald-300 font-mono">contato@normajuridica.com.br</code>) através do servidor SMTP integrado.
               </p>
               <div className="inline-block bg-slate-900 border border-emerald-600/60 px-4 py-2 rounded-lg text-sm font-mono text-emerald-300 font-bold">
                 Protocolo: {protocol}
@@ -196,7 +196,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onBack, onNavigateToLg
                   <input
                     type="text"
                     required
-                    placeholder="Ex: Dra. Mariana Costa"
+                    
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
@@ -210,7 +210,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onBack, onNavigateToLg
                   <input
                     type="email"
                     required
-                    placeholder="contato@advocacia.com.br"
+                    
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
@@ -243,7 +243,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onBack, onNavigateToLg
                   >
                     <option value="sugestao_pauta">Sugestão de Pauta / Decisão Judicial</option>
                     <option value="retificacao">Pedido de Retificação ou Esclarecimento</option>
-                    <option value="ouvidoria">Manifestação à Ouvidoria Geral</option>
+                    <option value="ouvidoria">Manifestação Geral</option>
                     <option value="publicidade">Publicidade / Parcerias Comerciais</option>
                     <option value="tecnico">Suporte Técnico ao Portal</option>
                     <option value="outros">Outros Assuntos</option>

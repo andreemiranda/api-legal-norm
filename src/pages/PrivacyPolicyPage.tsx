@@ -75,7 +75,7 @@ export const PrivacyPolicyPage: React.FC<LegalPageProps> = ({
           <ul className="list-disc pl-5 space-y-1 text-xs">
             <li><strong>Entidade:</strong> Portal Norma Jurídica de Comunicação e Informação Jurídica</li>
             <li><strong>Sede Redacional:</strong> Brasília - Distrito Federal, Brasil</li>
-            <li><strong>Canal Oficial da Ouvidoria / DPO:</strong> <code className="text-blue-300">ouvidoria.camarapa@gmail.com</code></li>
+            <li><strong>Canal Oficial de Contato:</strong> <code className="text-blue-300">contato@normajuridica.com.br</code></li>
             <li><strong>Encarregado de Proteção de Dados (DPO):</strong> Setor de Conformidade Regulatória e Direitos Digitais</li>
           </ul>
         </section>
@@ -89,7 +89,7 @@ export const PrivacyPolicyPage: React.FC<LegalPageProps> = ({
             <div className="bg-slate-900/80 border border-slate-800 rounded-lg p-4">
               <h4 className="font-bold text-white mb-1.5">Dados Fornecidos pelo Usuário</h4>
               <p className="text-slate-400">
-                Nome, e-mail, telefone e teor de mensagens enviadas voluntariamente pelo formulário de contato, canal da ouvidoria ou requisição de direitos de titular.
+                Nome, e-mail, telefone e teor de mensagens enviadas voluntariamente pelo formulário de contato, canal de contato ou requisição de direitos de titular.
               </p>
             </div>
             <div className="bg-slate-900/80 border border-slate-800 rounded-lg p-4">

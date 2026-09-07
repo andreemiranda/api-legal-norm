@@ -151,7 +151,7 @@
           </xsl:if>
 
           <div class="footer">
-            Norma Jurídica © 2026 • Portal de Notícias e Legislação • Em conformidade com LGPD
+            Norma Jurídica © 2026 • Portal de Notícias e Legislação
           </div>
         </div>
       </body>

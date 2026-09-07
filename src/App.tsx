@@ -158,8 +158,9 @@ function MainPortal() {
   }, [news]);
 
   // Handler to navigate between pages
-  const handleNavigate = (view: string) => {
+  const handleNavigate = (view: any) => {
     setCurrentView(view);
+    window.history.pushState({ view }, "", view === "home" ? "/" : `/${view}`);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -167,7 +168,18 @@ function MainPortal() {
   const handleSelectNews = (item: NewsItem) => {
     setSelectedPost(item);
     setCurrentView("post");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.history.pushState({ view: "post", postId: item.id }, "", `/${item.slug || 'post-' + item.id}`);
+    
+    setTimeout(() => {
+      const el = document.getElementById("post-detail-page");
+      if (el) {
+        const offset = 60; // offset to not hide behind potential sticky headers
+        const y = el.getBoundingClientRect().top + window.scrollY - offset;
+        window.scrollTo({ top: y, behavior: "smooth" });
+      } else {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    }, 100);
   };
 
   // Handler when selecting a category
@@ -178,8 +190,58 @@ function MainPortal() {
     if (currentView !== "home") {
       setCurrentView("home");
     }
+    window.history.pushState({ view: "home", category }, "", "/");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const state = e.state;
+      if (state?.view) {
+        setCurrentView(state.view);
+        if (state.view === "post" && state.postId) {
+          const post = news.find(n => n.id === state.postId);
+          if (post) setSelectedPost(post);
+        } else if (state.view === "home" && state.category) {
+          setSelectedCategory(state.category);
+        }
+      } else {
+        // Fallback parse url
+        const path = window.location.pathname;
+        if (path === "/" || path === "") {
+          setCurrentView("home");
+        } else {
+          const slug = path.substring(1);
+          const post = news.find(n => n.slug === slug || String(n.id) === slug.replace('post-', ''));
+          if (post) {
+            setSelectedPost(post);
+            setCurrentView("post");
+          }
+        }
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [news]);
+
+  // Initial route parsing
+  useEffect(() => {
+    if (news.length > 0 && !window.history.state?.view) {
+      const path = window.location.pathname;
+      if (path !== "/" && path !== "") {
+        const slug = path.substring(1);
+        if (["privacidade", "termos", "cookies", "lgpd", "consentimento", "contato"].includes(slug)) {
+          setCurrentView(slug as any);
+        } else {
+          const post = news.find(n => n.slug === slug || String(n.id) === slug.replace('post-', ''));
+          if (post) {
+            setSelectedPost(post);
+            setCurrentView("post");
+          }
+        }
+      }
+    }
+  }, [news]);
 
   // Related posts for current post
   const relatedPosts = useMemo(() => {
@@ -298,6 +360,8 @@ function MainPortal() {
               onSelectCategory={handleSelectCategory}
               onOpenSourcesModal={() => setIsSourcesModalOpen(true)}
               totalSourcesCount={sources.length}
+              recentNews={news.slice(0, 10)}
+              onSelectNews={handleSelectNews}
             />
           </div>
         </div>

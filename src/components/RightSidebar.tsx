@@ -1,12 +1,14 @@
 import React, { useState } from "react";
-import { CategoryItem } from "../types";
+import { CategoryItem, NewsItem } from "../types";
 import { WeatherBanner } from "./WeatherBanner";
 import { AdSenseBanner } from "./AdSenseBanner";
 import {
   FolderTree,
   Search,
-  ChevronRight
+  ChevronRight,
+  TrendingUp
 } from "lucide-react";
+import { extractThumbnail } from "../utils/imageFallback";
 
 interface RightSidebarProps {
   categories: CategoryItem[];
@@ -14,12 +16,16 @@ interface RightSidebarProps {
   onSelectCategory: (category: string) => void;
   onOpenSourcesModal?: () => void;
   totalSourcesCount?: number;
+  recentNews?: NewsItem[];
+  onSelectNews?: (item: NewsItem) => void;
 }
 
 export const RightSidebar: React.FC<RightSidebarProps> = ({
   categories,
   selectedCategory,
   onSelectCategory,
+  recentNews = [],
+  onSelectNews,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -40,11 +46,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         <div className="flex items-center justify-between border-b border-blue-900/40 pb-2.5 mb-3">
           <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-300">
             <FolderTree className="w-3.5 h-3.5 text-blue-400" />
-            <span>Editorias (50 Categorias)</span>
+            <span>Editorias</span>
           </div>
-          <span className="text-[10px] bg-blue-950 text-blue-300 border border-blue-800/60 px-1.5 py-0.5 rounded font-mono">
-            {categories.length}
-          </span>
         </div>
 
         {/* Quick Filter inside Sidebar */}
@@ -73,7 +76,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               <ChevronRight className="w-3 h-3 text-blue-400" />
               <span>Todas as Editorias</span>
             </span>
-            <span className="text-[10px] opacity-75 font-mono">Todos</span>
           </button>
 
           {filteredCategories.map((cat, idx) => {
@@ -89,18 +91,59 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 }`}
               >
                 <span className="truncate pr-2">{cat.category}</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded font-mono ${
-                    isActive ? "bg-blue-800 text-blue-100" : "bg-slate-800 text-slate-400"
-                  }`}
-                >
-                  {cat.count}
-                </span>
               </button>
             );
           })}
         </div>
       </div>
+
+      {/* 4. Recent News / Destaques */}
+      {recentNews.length > 0 && (
+        <div className="bg-slate-900/90 border border-blue-900/50 rounded-xl p-4 shadow-lg">
+          <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-300 border-b border-blue-900/40 pb-2.5 mb-3">
+            <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
+            <span>Últimas Notícias</span>
+          </div>
+          <div className="space-y-4">
+            {recentNews.slice(0, 5).map((item, idx) => {
+              const thumbnail = extractThumbnail(item);
+              return (
+                <article
+                  key={`recent-${item.id || idx}`}
+                  onClick={() => onSelectNews?.(item)}
+                  className="group flex gap-3 cursor-pointer items-start"
+                >
+                  <div className="w-16 h-16 shrink-0 rounded bg-slate-950 overflow-hidden border border-slate-800">
+                    {thumbnail ? (
+                      <img
+                        src={thumbnail}
+                        alt={item.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-slate-800/50">
+                        <span className="text-[8px] uppercase font-bold tracking-wider text-slate-600">Sem Foto</span>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-200 group-hover:text-blue-400 line-clamp-3 leading-snug transition-colors">
+                      {item.title}
+                    </h4>
+                    <span className="text-[9px] font-semibold uppercase text-blue-500 mt-1 block">
+                      {item.category}
+                    </span>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 5. Bottom AdSense Sidebar Slot (300x250) */}
+      <AdSenseBanner slotType="sidebar-bottom" />
     </aside>
   );
 };

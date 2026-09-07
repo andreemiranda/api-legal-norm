@@ -222,7 +222,6 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <span>Todas as Notícias</span>
-              <span className="text-[10px] opacity-75 font-mono">({totalNewsCount})</span>
             </button>
 
             {/* All 50 Categories */}
@@ -242,15 +241,6 @@ export const Header: React.FC<HeaderProps> = ({
                   }`}
                 >
                   <span>{item.category}</span>
-                  {item.count > 0 && (
-                    <span
-                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                        isActive ? "bg-blue-800 text-blue-100" : "bg-slate-700/80 text-blue-300"
-                      }`}
-                    >
-                      {item.count}
-                    </span>
-                  )}
                 </button>
               );
             })}

@@ -77,12 +77,18 @@ export const NewsCarousel: React.FC<NewsCarouselProps> = ({ news, onSelectNews }
     >
       {/* Visual Background with subtle zoom */}
       <div className="relative h-[380px] sm:h-[440px] md:h-[480px] w-full overflow-hidden">
-        <img
-          src={thumbnail}
-          alt={currentItem.title}
-          referrerPolicy="no-referrer"
-          className="w-full h-full object-cover object-center transform transition-transform duration-1000 ease-out group-hover:scale-105 filter brightness-75"
-        />
+        {thumbnail ? (
+          <img
+            src={thumbnail}
+            alt={currentItem.title}
+            referrerPolicy="no-referrer"
+            className="w-full h-full object-cover object-center transform transition-transform duration-1000 ease-out group-hover:scale-105 filter brightness-75"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-slate-900 filter brightness-75">
+            <span className="text-xl uppercase font-bold tracking-wider text-slate-800">Sem Imagem</span>
+          </div>
+        )}
 
         {/* Gradient overlays for readability and dark blue atmosphere */}
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/70 to-blue-950/40" />
