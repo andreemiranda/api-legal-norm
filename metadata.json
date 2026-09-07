@@ -1,0 +1,6 @@
+{
+  "name": "Norma Jurídica",
+  "description": "Portal de Notícias Avançado e Responsivo é uma plataforma digital completa de jornalismo moderno, desenvolvida com foco em alta performance, monetização e conformidade jurídica. O aplicativo consolida notícias organizados cronologicamente e um menu dinâmico de quatro linhas e barra lateral, proporcionando uma navegação fluida com paginação inspirada no padrão WordPress.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
