@@ -1,33 +1,40 @@
 import React from "react";
 import { AdSenseBanner } from "./AdSenseBanner";
+import { getSiteDomain } from "../utils/domain";
 import {
   Scale,
   Shield,
-  FileText,
-  Lock,
   Sliders,
   Mail,
   FileCode,
   ExternalLink,
   ChevronRight,
-  Globe
+  Globe,
+  Activity,
 } from "lucide-react";
 
 interface FooterProps {
   onNavigate: (view: string) => void;
   currentView: string;
   onOpenConsentSettings: () => void;
+  onOpenAdminMetrics?: () => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({
   onNavigate,
   currentView,
   onOpenConsentSettings,
+  onOpenAdminMetrics,
 }) => {
   const currentYear = new Date().getFullYear();
-  const domain =
-    import.meta.env.VITE_APP_URL ||
-    (typeof window !== "undefined" ? window.location.origin : "https://normajuridica.com.br");
+  const domain = getSiteDomain();
+
+  const handleCookiePrefClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (typeof onOpenConsentSettings === "function") {
+      onOpenConsentSettings();
+    }
+  };
 
   return (
     <footer id="main-footer" className="w-full bg-slate-950 text-slate-300 border-t border-blue-900/60 pt-12 pb-8">
@@ -54,7 +61,7 @@ export const Footer: React.FC<FooterProps> = ({
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed">
-              Portal de Notícias Avançado e Responsivo. Plataforma digital completa de jornalismo moderno, desenvolvida com foco em alta performance e conteúdo jornalístico de qualidade.
+              Portal de Notícias Avançado e Responsivo. Plataforma digital de jornalismo moderno, desenvolvida com foco em alta performance, apuração precisa e conteúdo jornalístico de qualidade.
             </p>
 
             <div className="pt-2 text-[11px] text-slate-500 space-y-1">
@@ -62,15 +69,15 @@ export const Footer: React.FC<FooterProps> = ({
                 <Globe className="w-3.5 h-3.5 text-blue-400" />
                 <span className="font-mono text-slate-400">{domain}</span>
               </div>
-              <p>Redação: Brasília - DF • Cobertura Nacional</p>
+              <p>Cobertura Nacional • Brasília - DF</p>
             </div>
           </div>
 
-          {/* Column 2: Legal Documents & LGPD */}
+          {/* Column 2: Legal Documents & Privacy */}
           <div>
             <h4 className="font-serif text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2 border-b border-blue-900/40 pb-2">
               <Shield className="w-4 h-4 text-emerald-400" />
-              <span>Documentos Legais & LGPD</span>
+              <span>Documentos Legais & Privacidade</span>
             </h4>
 
             <ul className="space-y-2 text-xs">
@@ -118,13 +125,14 @@ export const Footer: React.FC<FooterProps> = ({
                   }`}
                 >
                   <ChevronRight className="w-3 h-3 text-emerald-400" />
-                  <span className="font-medium">Portal LGPD & Direitos do Titular</span>
+                  <span className="font-medium">Tratamento de Dados Pessoais</span>
                 </button>
               </li>
 
               <li>
                 <button
-                  onClick={onOpenConsentSettings}
+                  id="footer-nav-consentimento-btn"
+                  onClick={handleCookiePrefClick}
                   className={`flex items-center gap-1.5 hover:text-blue-300 transition-colors ${
                     currentView === "consentimento" ? "text-blue-400 font-semibold" : "text-slate-300"
                   }`}
@@ -136,7 +144,7 @@ export const Footer: React.FC<FooterProps> = ({
             </ul>
           </div>
 
-          {/* Column 3: Institutional Institutional & Ouvidoria Contato */}
+          {/* Column 3: Institutional & Contato */}
           <div>
             <h4 className="font-serif text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2 border-b border-blue-900/40 pb-2">
               <Mail className="w-4 h-4 text-blue-400" />
@@ -152,7 +160,7 @@ export const Footer: React.FC<FooterProps> = ({
                   }`}
                 >
                   <ChevronRight className="w-3 h-3 text-blue-400" />
-                  <span>Formulário de Contato da Redação</span>
+                  <span>Formulário de Contato</span>
                 </button>
               </li>
 
@@ -162,13 +170,13 @@ export const Footer: React.FC<FooterProps> = ({
                   className="flex items-center gap-1.5 hover:text-blue-300 transition-colors text-slate-300"
                 >
                   <ChevronRight className="w-3 h-3 text-blue-400" />
-                  <span>Requerimento do Titular (DPO)</span>
+                  <span>Solicitações de Privacidade</span>
                 </button>
               </li>
             </ul>
           </div>
 
-          {/* Column 4: SEO, Sitemaps & ads.txt */}
+          {/* Column 4: SEO, Sitemaps & Technical files */}
           <div>
             <h4 className="font-serif text-sm font-bold text-white uppercase tracking-wider mb-4 flex items-center gap-2 border-b border-blue-900/40 pb-2">
               <FileCode className="w-4 h-4 text-amber-400" />
@@ -183,7 +191,7 @@ export const Footer: React.FC<FooterProps> = ({
                   rel="noopener noreferrer"
                   className="flex items-center justify-between text-slate-300 hover:text-blue-300 transition-colors"
                 >
-                  <span>Sitemap XML Principal (com .xsl)</span>
+                  <span>Sitemap XML Principal</span>
                   <ExternalLink className="w-3 h-3 text-slate-500" />
                 </a>
               </li>
@@ -195,7 +203,7 @@ export const Footer: React.FC<FooterProps> = ({
                   rel="noopener noreferrer"
                   className="flex items-center justify-between text-slate-300 hover:text-blue-300 transition-colors"
                 >
-                  <span>Sitemap de Notícias (Posts)</span>
+                  <span>Sitemap de Notícias</span>
                   <ExternalLink className="w-3 h-3 text-slate-500" />
                 </a>
               </li>
@@ -227,16 +235,30 @@ export const Footer: React.FC<FooterProps> = ({
           </div>
         </div>
 
-        {/* Bottom Bar: Copyright */}
+        {/* Bottom Bar: Copyright & Cookie Preferences Link */}
         <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <p>© {currentYear} Norma Jurídica. Todos os direitos reservados.</p>
           <div className="flex items-center gap-4 text-[11px]">
             <button
-              onClick={onOpenConsentSettings}
-              className="text-blue-400 hover:underline"
+              id="footer-cookie-preferences-button"
+              onClick={handleCookiePrefClick}
+              className="text-blue-400 hover:underline cursor-pointer flex items-center gap-1 font-medium"
             >
-              Preferências de Cookies
+              <Sliders className="w-3 h-3" />
+              <span>Preferências de Cookies</span>
             </button>
+
+            {onOpenAdminMetrics && (
+              <button
+                id="footer-admin-metrics-button"
+                onClick={onOpenAdminMetrics}
+                className="text-slate-400 hover:text-blue-300 transition-colors cursor-pointer flex items-center gap-1 font-medium"
+                title="Painel de Rotação Firebase & Métricas Google"
+              >
+                <Activity className="w-3 h-3 text-emerald-400" />
+                <span>Métricas & Firebase (10GB)</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

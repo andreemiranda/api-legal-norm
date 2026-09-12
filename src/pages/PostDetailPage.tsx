@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { NewsItem } from "../types";
-import { extractThumbnail } from "../utils/imageFallback";
+import { extractPostImages, processPostContent, getProxyImageUrl } from "../utils/imageOptimizer";
 import { formatDatePtBR, calculateReadingTime, stripHtml } from "../utils/date";
 import { AdSenseBanner } from "../components/AdSenseBanner";
 import {
@@ -8,17 +8,12 @@ import {
   Calendar,
   Clock,
   User,
-  Share2,
   Copy,
   Check,
-  ExternalLink,
-  Bookmark,
   Printer,
-  Scale,
   MessageCircle,
   Twitter,
-  Linkedin,
-  Send
+  Send,
 } from "lucide-react";
 
 interface PostDetailPageProps {
@@ -37,16 +32,44 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
   onSelectCategory,
 }) => {
   const [copied, setCopied] = useState(false);
-  const thumbnail = extractThumbnail(post);
+  const headlineRef = useRef<HTMLDivElement>(null);
+
+  // Extract all images and determine guaranteed featured image
+  const { featuredImage } = useMemo(() => {
+    return extractPostImages(post);
+  }, [post]);
+
   const readingTime = calculateReadingTime(post.content || post.description);
   const currentUrl = typeof window !== "undefined" ? window.location.href : "";
 
+  // Scroll to center the visible area on the image/headline when opened
+  useEffect(() => {
+    if (headlineRef.current) {
+      headlineRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      window.scrollTo({ top: 180, behavior: "smooth" });
+    }
+  }, [post.id, post.slug]);
+
+  // Clean and optimize post content: deduplicates featured image and cleans editorial boilerplate
   const sanitizedContent = useMemo(() => {
     if (!post.content) return "";
-    return post.content
-      .replace(/(<br\s*\/?>\s*){3,}/gi, "<br /><br />")
+    return processPostContent(post.content, featuredImage);
+  }, [post.content, featuredImage]);
+
+  const cleanTitle = useMemo(() => {
+    return (post.title || "")
+      .replace(/^(\s*da\s+redação[\s:-]*|\s*da\s+redacao[\s:-]*)/gi, "")
+      .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
       .trim();
-  }, [post.content]);
+  }, [post.title]);
+
+  const cleanDescription = useMemo(() => {
+    return (post.description || "")
+      .replace(/^(\s*da\s+redação[\s:-]*|\s*da\s+redacao[\s:-]*)/gi, "")
+      .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
+      .trim();
+  }, [post.description]);
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(currentUrl);
@@ -55,22 +78,25 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
   };
 
   const handleShareWhatsApp = () => {
-    const text = encodeURIComponent(`*${post.title}*\n\nLeia no portal Norma Jurídica: ${currentUrl}`);
+    const text = encodeURIComponent(`*${cleanTitle}*\n\nLeia no portal Norma Jurídica: ${currentUrl}`);
     window.open(`https://api.whatsapp.com/send?text=${text}`, "_blank");
   };
 
   const handleShareTelegram = () => {
-    const text = encodeURIComponent(post.title);
+    const text = encodeURIComponent(cleanTitle);
     window.open(`https://t.me/share/url?url=${encodeURIComponent(currentUrl)}&text=${text}`, "_blank");
   };
 
   const handleShareTwitter = () => {
-    const text = encodeURIComponent(post.title);
+    const text = encodeURIComponent(cleanTitle);
     window.open(`https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent(currentUrl)}`, "_blank");
   };
 
   return (
-    <article id="post-detail-page" className="max-w-4xl mx-auto space-y-6">
+    <article id="post-detail-page" className="max-w-4xl mx-auto space-y-6 pt-2">
+      {/* Target anchor for smooth centering */}
+      <div ref={headlineRef} className="scroll-mt-6" />
+
       {/* Breadcrumbs & Return */}
       <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-800 pb-3">
         <button
@@ -95,7 +121,7 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
         </div>
       </div>
 
-      {/* Header Metadata */}
+      {/* Header Metadata & Headline */}
       <div>
         <div className="flex flex-wrap items-center gap-2.5 mb-3">
           <button
@@ -118,7 +144,7 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
 
         {/* Headline */}
         <h1 className="font-serif text-2xl sm:text-3xl md:text-4xl font-extrabold text-white leading-tight tracking-tight">
-          {post.title}
+          {cleanTitle}
         </h1>
 
         {/* Byline and Share Bar */}
@@ -128,9 +154,9 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
               <User className="w-4 h-4" />
             </div>
             <div>
-              <p className="font-semibold text-white">Redação Norma Jurídica</p>
+              <p className="font-semibold text-white">Norma Jurídica</p>
               <p className="text-[11px] text-slate-400">
-                {post.sourceSite ? `Fonte: ${post.sourceSite}` : "Jornalismo Jurídico Especializado"}
+                {post.sourceSite ? `Editoria: ${post.category}` : "Jornalismo Jurídico Especializado"}
               </p>
             </div>
           </div>
@@ -182,18 +208,21 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
         </div>
       </div>
 
-      {/* Featured Image */}
-      {thumbnail && (
+      {/* Featured Image - Guaranteed and centered */}
+      {featuredImage && (
         <div className="w-full rounded-2xl overflow-hidden border border-blue-900/40 bg-slate-950 relative shadow-2xl">
           <img
-            src={thumbnail}
-            alt={post.title}
+            src={getProxyImageUrl(featuredImage)}
+            alt={cleanTitle}
             referrerPolicy="no-referrer"
-            className="w-full h-[320px] sm:h-[420px] object-cover object-center"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).src = "/logo.jpg";
+            }}
+            className="w-full h-[320px] sm:h-[440px] object-cover object-center"
           />
           <div className="p-2.5 bg-slate-950 text-[11px] text-slate-400 flex items-center justify-between border-t border-slate-900">
-            <span>Registro fotográfico original da fonte</span>
-            <span>Norma Jurídica</span>
+            <span>{post.category || "Notícia"} • Norma Jurídica</span>
+            <span>Edição Nacional</span>
           </div>
         </div>
       )}
@@ -207,7 +236,7 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
           />
         ) : (
           <p className="text-slate-200 text-base leading-relaxed text-justify">
-            {stripHtml(post.description)}
+            {stripHtml(cleanDescription)}
           </p>
         )}
 
@@ -215,29 +244,6 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
         <div className="my-8">
           <AdSenseBanner slotType="in-article" />
         </div>
-
-        {/* Original link attribution if available */}
-        {post.link && (
-          <div className="mt-8 p-4 rounded-xl bg-slate-950 border border-blue-900/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-            <div>
-              <p className="font-semibold text-slate-200">Publicação e Fonte Original</p>
-              <p className="text-slate-400 text-[11px] truncate max-w-md mt-0.5">
-                {post.link}
-              </p>
-            </div>
-
-            <a
-              href={post.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3.5 py-1.5 rounded-lg bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 hover:text-white flex items-center gap-1.5 font-medium transition-colors"
-            >
-              <span>Acessar fonte original</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          </div>
-        )}
-
       </div>
 
       {/* Related Posts Section */}
@@ -249,7 +255,8 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {relatedPosts.slice(0, 3).map((r, idx) => {
-              const rThumb = extractThumbnail(r);
+              const rImages = extractPostImages(r);
+              const rThumb = rImages.featuredImage;
               return (
                 <div
                   key={r.id ? `related-${r.id}-${idx}` : `related-${idx}`}
@@ -257,18 +264,15 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
                   className="group cursor-pointer bg-slate-900 border border-slate-800 hover:border-blue-700/60 rounded-xl overflow-hidden transition-all shadow-sm"
                 >
                   <div className="w-full h-28 overflow-hidden bg-slate-950">
-                    {rThumb ? (
-                      <img
-                        src={rThumb}
-                        alt={r.title}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-slate-800/50">
-                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-600">Sem Imagem</span>
-                      </div>
-                    )}
+                    <img
+                      src={getProxyImageUrl(rThumb)}
+                      alt={r.title}
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = "/logo.jpg";
+                      }}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    />
                   </div>
                   <div className="p-3">
                     <span className="text-[10px] text-blue-400 font-semibold uppercase">{r.category}</span>

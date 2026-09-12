@@ -10,6 +10,10 @@ export interface NewsItem {
   sourceId?: number;
   sourceSite?: string;
   thumbnail?: string;
+  imageUrl?: string;
+  image?: string;
+  mediaUrl?: string;
+  slug?: string;
 }
 
 export interface CategoryItem {

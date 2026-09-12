@@ -7,6 +7,8 @@ import { Footer } from "./components/Footer";
 import { FooterGrid } from "./components/FooterGrid";
 import { CookieBanner } from "./components/CookieBanner";
 import { SourcesModal } from "./components/SourcesModal";
+import { AdminMetricsModal } from "./components/AdminMetricsModal";
+import { trafficRouter } from "./services/firebaseTrafficRouter";
 
 import { HomePage } from "./pages/HomePage";
 import { PostDetailPage } from "./pages/PostDetailPage";
@@ -20,12 +22,13 @@ import { ContactPage } from "./pages/ContactPage";
 import staticCategories from "./data/categories.json";
 import staticSources from "./data/sources.json";
 import initialNewsData from "./data/initialNews.json";
+import { searchNews } from "./utils/search";
 
 // Safe deduplicator for news arrays
 function deduplicateNews(items: NewsItem[]): NewsItem[] {
   const seen = new Set<string>();
   return items.filter((item) => {
-    const rawKey = item.id || item.link || item.title;
+    const rawKey = item.slug || item.id || item.link || item.title;
     if (!rawKey) return false;
     const key = String(rawKey);
     if (seen.has(key)) return false;
@@ -50,7 +53,7 @@ function MainPortal() {
   const [selectedSourceId, setSelectedSourceId] = useState<number | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState<string>("");
 
-  // Pagination state (WordPress style)
+  // Pagination state
   const [currentPage, setCurrentPage] = useState<number>(1);
   const perPage = 12;
 
@@ -60,12 +63,22 @@ function MainPortal() {
   const [sources, setSources] = useState<NewsSource[]>(staticSources as NewsSource[]);
   const [isLoadingNews, setIsLoadingNews] = useState<boolean>(false);
   const [isSourcesModalOpen, setIsSourcesModalOpen] = useState<boolean>(false);
+  const [isAdminMetricsOpen, setIsAdminMetricsOpen] = useState<boolean>(false);
 
-  // Load categories and initial news from backend API
+  // Check query parameter for admin metrics (?admin=metrics or ?metrics=1)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("admin") === "metrics" || params.get("metrics") === "1") {
+        setIsAdminMetricsOpen(true);
+      }
+    } catch {}
+  }, []);
+
+  // Hybrid news loading: Firebase RTDB (Primary or Mirror with automatic 9GB rotation) + in-code static fallback
   useEffect(() => {
     async function loadData() {
       try {
-        // Categories
         const catRes = await fetch("/api/categories");
         if (catRes.ok) {
           const catJson = await catRes.json();
@@ -78,17 +91,30 @@ function MainPortal() {
       }
 
       try {
-        // News (Fetch all news from all endpoints in chronological order)
         setIsLoadingNews(true);
-        const newsRes = await fetch("/api/news?all=true");
-        if (newsRes.ok) {
-          const newsJson = await newsRes.json();
-          if (newsJson.success && Array.isArray(newsJson.data) && newsJson.data.length > 0) {
-            setNews(deduplicateNews(newsJson.data));
+
+        // 1. Attempt hybrid fetch through Firebase traffic router
+        const hybridResult = await trafficRouter.fetchNews();
+        if (hybridResult && hybridResult.news && hybridResult.news.length > 0) {
+          setNews(deduplicateNews(hybridResult.news));
+        } else {
+          // 2. Fallback to server endpoint
+          const newsRes = await fetch("/api/news?all=true");
+          if (newsRes.ok) {
+            const newsJson = await newsRes.json();
+            if (newsJson.success && Array.isArray(newsJson.data) && newsJson.data.length > 0) {
+              setNews(deduplicateNews(newsJson.data));
+            }
           }
         }
+
+        // Non-blocking visitor metric logging for administration
+        trafficRouter.logMetricEvent("visit", {
+          pathname: window.location.pathname,
+          referrer: document.referrer || "direct",
+        });
       } catch (err) {
-        console.warn("Failed to load /api/news:", err);
+        console.warn("Notice: Using static in-code news fallback:", err);
       } finally {
         setIsLoadingNews(false);
       }
@@ -97,7 +123,7 @@ function MainPortal() {
     loadData();
   }, []);
 
-  // Filtered and sorted news (Most recent first)
+  // Filtered and sorted news (With multi-token relevance scoring)
   const filteredNews = useMemo(() => {
     let result = [...news];
 
@@ -113,19 +139,13 @@ function MainPortal() {
       result = result.filter((item) => item.sourceId === selectedSourceId);
     }
 
-    // Filter by Search Query
+    // Filter by Search Query with advanced scoring
     if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
-      result = result.filter(
-        (item) =>
-          item.title?.toLowerCase().includes(q) ||
-          item.description?.toLowerCase().includes(q) ||
-          item.category?.toLowerCase().includes(q) ||
-          item.sourceSite?.toLowerCase().includes(q)
-      );
+      result = searchNews(result, searchTerm);
+      return result;
     }
 
-    // Sort: Most recent first (descending by timestamp)
+    // Default Sort: Chronological (newest first)
     result.sort((a, b) => {
       const timeA = a.pubDate ? new Date(a.pubDate).getTime() : 0;
       const timeB = b.pubDate ? new Date(b.pubDate).getTime() : 0;
@@ -144,13 +164,11 @@ function MainPortal() {
 
   // 6 Items for the Home Carousel
   const carouselNews = useMemo(() => {
-    // Pick the top 6 news from the collection
     return news.slice(0, 6);
   }, [news]);
 
-  // 8 Items for the pre-footer section (2 lines x 4 columns)
+  // 8 Items for the pre-footer section
   const preFooterNews = useMemo(() => {
-    // Pick 8 news items from the feed
     if (news.length >= 8) {
       return news.slice(6, 14);
     }
@@ -158,28 +176,34 @@ function MainPortal() {
   }, [news]);
 
   // Handler to navigate between pages
-  const handleNavigate = (view: any) => {
+  const handleNavigate = (view: string) => {
     setCurrentView(view);
     window.history.pushState({ view }, "", view === "home" ? "/" : `/${view}`);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Handler when selecting a news item
+  // Handler to open consent preferences
+  const handleOpenConsentSettings = () => {
+    setCurrentView("consentimento");
+    window.history.pushState({ view: "consentimento" }, "", "/consentimento");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // Handler when selecting a news item: Centers visible area on image/title
   const handleSelectNews = (item: NewsItem) => {
     setSelectedPost(item);
     setCurrentView("post");
-    window.history.pushState({ view: "post", postId: item.id }, "", `/${item.slug || 'post-' + item.id}`);
-    
+    const targetSlug = item.slug || `post/${item.id}`;
+    window.history.pushState({ view: "post", postId: item.id }, "", `/${targetSlug}`);
+
     setTimeout(() => {
       const el = document.getElementById("post-detail-page");
       if (el) {
-        const offset = 60; // offset to not hide behind potential sticky headers
-        const y = el.getBoundingClientRect().top + window.scrollY - offset;
-        window.scrollTo({ top: y, behavior: "smooth" });
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
       } else {
-        window.scrollTo({ top: 0, behavior: "smooth" });
+        window.scrollTo({ top: 180, behavior: "smooth" });
       }
-    }, 100);
+    }, 60);
   };
 
   // Handler when selecting a category
@@ -200,22 +224,27 @@ function MainPortal() {
       if (state?.view) {
         setCurrentView(state.view);
         if (state.view === "post" && state.postId) {
-          const post = news.find(n => n.id === state.postId);
+          const post = news.find((n) => n.id === state.postId);
           if (post) setSelectedPost(post);
         } else if (state.view === "home" && state.category) {
           setSelectedCategory(state.category);
         }
       } else {
-        // Fallback parse url
         const path = window.location.pathname;
         if (path === "/" || path === "") {
           setCurrentView("home");
         } else {
           const slug = path.substring(1);
-          const post = news.find(n => n.slug === slug || String(n.id) === slug.replace('post-', ''));
-          if (post) {
-            setSelectedPost(post);
-            setCurrentView("post");
+          if (["privacidade", "termos", "cookies", "lgpd", "consentimento", "contato"].includes(slug)) {
+            setCurrentView(slug);
+          } else {
+            const post = news.find(
+              (n) => n.slug === slug || n.slug === `post/${slug}` || String(n.id) === slug.replace("post-", "")
+            );
+            if (post) {
+              setSelectedPost(post);
+              setCurrentView("post");
+            }
           }
         }
       }
@@ -231,9 +260,11 @@ function MainPortal() {
       if (path !== "/" && path !== "") {
         const slug = path.substring(1);
         if (["privacidade", "termos", "cookies", "lgpd", "consentimento", "contato"].includes(slug)) {
-          setCurrentView(slug as any);
+          setCurrentView(slug);
         } else {
-          const post = news.find(n => n.slug === slug || String(n.id) === slug.replace('post-', ''));
+          const post = news.find(
+            (n) => n.slug === slug || n.slug === `post/${slug}` || String(n.id) === slug.replace("post-", "")
+          );
           if (post) {
             setSelectedPost(post);
             setCurrentView("post");
@@ -253,7 +284,7 @@ function MainPortal() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
-      {/* 1. Header (Non-fixed, scrolls with page, holds 50-category menu in 4 lines) */}
+      {/* 1. Header */}
       <Header
         categories={categories}
         selectedCategory={selectedCategory}
@@ -302,7 +333,7 @@ function MainPortal() {
               <PostDetailPage
                 post={selectedPost}
                 relatedPosts={relatedPosts}
-                onBack={() => setCurrentView("home")}
+                onBack={() => handleNavigate("home")}
                 onSelectPost={handleSelectNews}
                 onSelectCategory={handleSelectCategory}
               />
@@ -310,44 +341,44 @@ function MainPortal() {
 
             {currentView === "privacidade" && (
               <PrivacyPolicyPage
-                onBack={() => setCurrentView("home")}
-                onNavigateToLgpd={() => setCurrentView("lgpd")}
-                onNavigateToConsent={() => setCurrentView("consentimento")}
+                onBack={() => handleNavigate("home")}
+                onNavigateToLgpd={() => handleNavigate("lgpd")}
+                onNavigateToConsent={handleOpenConsentSettings}
               />
             )}
 
             {currentView === "termos" && (
               <TermsOfUsePage
-                onBack={() => setCurrentView("home")}
-                onNavigateToContact={() => setCurrentView("contato")}
+                onBack={() => handleNavigate("home")}
+                onNavigateToContact={() => handleNavigate("contato")}
               />
             )}
 
             {currentView === "cookies" && (
               <CookiePolicyPage
-                onBack={() => setCurrentView("home")}
-                onNavigateToConsent={() => setCurrentView("consentimento")}
+                onBack={() => handleNavigate("home")}
+                onNavigateToConsent={handleOpenConsentSettings}
               />
             )}
 
             {currentView === "lgpd" && (
               <LgpdPortalPage
-                onBack={() => setCurrentView("home")}
-                onNavigateToConsent={() => setCurrentView("consentimento")}
+                onBack={() => handleNavigate("home")}
+                onNavigateToConsent={handleOpenConsentSettings}
               />
             )}
 
             {currentView === "consentimento" && (
               <ConsentManagementPage
-                onBack={() => setCurrentView("home")}
-                onNavigateToPrivacy={() => setCurrentView("privacidade")}
+                onBack={() => handleNavigate("home")}
+                onNavigateToPrivacy={() => handleNavigate("privacidade")}
               />
             )}
 
             {currentView === "contato" && (
               <ContactPage
-                onBack={() => setCurrentView("home")}
-                onNavigateToLgpd={() => setCurrentView("lgpd")}
+                onBack={() => handleNavigate("home")}
+                onNavigateToLgpd={() => handleNavigate("lgpd")}
               />
             )}
           </div>
@@ -367,20 +398,21 @@ function MainPortal() {
         </div>
       </main>
 
-      {/* 3. Mandatory Pre-Footer Grid (2 lines x 4 columns on ALL pages) */}
+      {/* 3. Pre-Footer Grid (2 lines x 4 columns) */}
       <FooterGrid news={preFooterNews} onSelectNews={handleSelectNews} />
 
       {/* 4. Footer */}
       <Footer
         onNavigate={handleNavigate}
         currentView={currentView}
-        onOpenConsentSettings={() => setCurrentView("consentimento")}
+        onOpenConsentSettings={handleOpenConsentSettings}
+        onOpenAdminMetrics={() => setIsAdminMetricsOpen(true)}
       />
 
       {/* 5. Floating LGPD Cookie Banner */}
-      <CookieBanner onNavigateToConsent={() => setCurrentView("consentimento")} />
+      <CookieBanner onNavigateToConsent={handleOpenConsentSettings} />
 
-      {/* 6. 72 News Sources Inspection Modal */}
+      {/* 6. Sources Modal */}
       <SourcesModal
         isOpen={isSourcesModalOpen}
         onClose={() => setIsSourcesModalOpen(false)}
@@ -391,6 +423,12 @@ function MainPortal() {
           setCurrentPage(1);
           if (currentView !== "home") setCurrentView("home");
         }}
+      />
+
+      {/* 7. Admin Metrics & Firebase RTDB Modal */}
+      <AdminMetricsModal
+        isOpen={isAdminMetricsOpen}
+        onClose={() => setIsAdminMetricsOpen(false)}
       />
     </div>
   );

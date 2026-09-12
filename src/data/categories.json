@@ -1,99 +1,99 @@
 [
   {
     "category": "Acre",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Alagoas",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Amapá",
-    "count": 1
+    "count": 8
   },
   {
     "category": "Amazonas",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Autoesporte",
-    "count": 1
+    "count": 9
   },
   {
     "category": "Bauru e Marília",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Campinas e região",
-    "count": 1
+    "count": 7
   },
   {
     "category": "Campos Gerais e Sul do Paraná",
-    "count": 1
+    "count": 50
   },
   {
     "category": "Caruaru e Região",
-    "count": 1
+    "count": 9
   },
   {
     "category": "Centro-Oeste de Minas",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Economia",
-    "count": 2
+    "count": 15
   },
   {
     "category": "Educação",
-    "count": 2
+    "count": 20
   },
   {
     "category": "Esporte",
-    "count": 2
+    "count": 10
   },
   {
     "category": "Finanças",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Goiás",
-    "count": 3
+    "count": 20
   },
   {
     "category": "Grande Minas",
-    "count": 1
+    "count": 9
   },
   {
     "category": "Justiça",
-    "count": 4
+    "count": 30
   },
   {
     "category": "Loterias",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Maranhão",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Mogi das Cruzes e Suzano",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Mundo",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Norte e Noroeste do Paraná",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Norte Fluminense",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Notícias Gerais",
-    "count": 4
+    "count": 40
   },
   {
     "category": "Oeste e Sudoeste do Paraná",
@@ -101,15 +101,15 @@
   },
   {
     "category": "Palmeiras",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Pará",
-    "count": 1
+    "count": 9
   },
   {
     "category": "Paraíba",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Paraná",
@@ -117,86 +117,86 @@
   },
   {
     "category": "Petrolina e Região",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Pop & Arte",
-    "count": 1
+    "count": 9
   },
   {
     "category": "Região dos Lagos Fluminense",
-    "count": 1
+    "count": 3
   },
   {
     "category": "Região Serrana Fluminense",
-    "count": 1
+    "count": 3
   },
   {
     "category": "Ribeirão Preto e Franca",
-    "count": 1
+    "count": 9
   },
   {
     "category": "Rio Grande do Norte",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Rio Grande do Sul",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Rondônia",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Roraima",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Santa Catarina",
-    "count": 2
+    "count": 19
   },
   {
     "category": "Santos e Região",
-    "count": 1
+    "count": 10
   },
   {
     "category": "São Carlos e Araraquara",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Sergipe",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Sul de Minas",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Sul e Costa Verde Fluminense",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Tecnologia e Games",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Tocantins",
-    "count": 11
+    "count": 80
   },
   {
     "category": "Turismo e Viagem",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Vale do Paraíba e região",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Vales de Minas Gerais",
-    "count": 1
+    "count": 10
   },
   {
     "category": "Zona da Mata Mineira",
-    "count": 1
+    "count": 10
   }
 ]

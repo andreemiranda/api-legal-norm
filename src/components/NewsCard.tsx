@@ -1,8 +1,8 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { NewsItem } from "../types";
-import { extractThumbnail } from "../utils/imageFallback";
+import { extractPostImages, getProxyImageUrl } from "../utils/imageOptimizer";
 import { formatRelativeTime, stripHtml, calculateReadingTime } from "../utils/date";
-import { Clock, ArrowUpRight, Share2, Globe } from "lucide-react";
+import { Clock, ArrowUpRight } from "lucide-react";
 
 interface NewsCardProps {
   item: NewsItem;
@@ -11,8 +11,24 @@ interface NewsCardProps {
 }
 
 export const NewsCard: React.FC<NewsCardProps> = ({ item, onSelect, layout = "vertical" }) => {
-  const thumbnail = extractThumbnail(item);
-  const excerpt = stripHtml(item.description || item.content || "").slice(0, 140);
+  const { featuredImage } = useMemo(() => extractPostImages(item), [item]);
+  const proxySrc = useMemo(() => getProxyImageUrl(featuredImage), [featuredImage]);
+
+  const cleanTitle = useMemo(() => {
+    return (item.title || "")
+      .replace(/^(\s*da\s+redação[\s:-]*|\s*da\s+redacao[\s:-]*)/gi, "")
+      .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
+      .trim();
+  }, [item.title]);
+
+  const cleanExcerpt = useMemo(() => {
+    const raw = stripHtml(item.description || item.content || "")
+      .replace(/^(\s*da\s+redação[\s:-]*|\s*da\s+redacao[\s:-]*)/gi, "")
+      .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
+      .trim();
+    return raw.slice(0, 140);
+  }, [item.description, item.content]);
+
   const readingTime = calculateReadingTime(item.content || item.description);
 
   if (layout === "horizontal") {
@@ -21,21 +37,18 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item, onSelect, layout = "ve
         onClick={() => onSelect(item)}
         className="group cursor-pointer bg-slate-900/70 hover:bg-slate-900 border border-blue-900/30 hover:border-blue-700/60 rounded-xl p-3.5 flex flex-col sm:flex-row gap-4 transition-all duration-200 shadow-sm hover:shadow-md select-none"
       >
-        {/* Thumbnail */}
+        {/* Thumbnail - Guaranteed image */}
         <div className="w-full sm:w-44 h-36 sm:h-32 rounded-lg overflow-hidden shrink-0 relative bg-slate-950">
-          {thumbnail ? (
-            <img
-              src={thumbnail}
-              alt={item.title}
-              loading="lazy"
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-slate-800/50">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-600">Sem Imagem</span>
-            </div>
-          )}
+          <img
+            src={proxySrc}
+            alt={cleanTitle}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).src = "/logo.jpg";
+            }}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          />
           <span className="absolute top-2 left-2 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-600/90 text-white backdrop-blur">
             {item.category || "Geral"}
           </span>
@@ -51,24 +64,15 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item, onSelect, layout = "ve
               </span>
               <span>•</span>
               <span>{readingTime} min de leitura</span>
-              {item.sourceSite && (
-                <>
-                  <span>•</span>
-                  <span className="flex items-center gap-0.5 text-slate-400 truncate max-w-[120px]">
-                    <Globe className="w-3 h-3" />
-                    {item.sourceSite}
-                  </span>
-                </>
-              )}
             </div>
 
             <h3 className="font-serif text-base font-bold text-white group-hover:text-blue-300 transition-colors line-clamp-2 leading-snug">
-              {item.title}
+              {cleanTitle}
             </h3>
 
-            {excerpt && (
+            {cleanExcerpt && (
               <p className="text-xs text-slate-300 line-clamp-2 mt-1.5 leading-relaxed">
-                {excerpt}...
+                {cleanExcerpt}...
               </p>
             )}
           </div>
@@ -89,21 +93,18 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item, onSelect, layout = "ve
       onClick={() => onSelect(item)}
       className="group cursor-pointer bg-slate-900/70 hover:bg-slate-900 border border-blue-900/30 hover:border-blue-700/60 rounded-xl overflow-hidden flex flex-col transition-all duration-200 shadow-sm hover:shadow-md select-none"
     >
-      {/* Thumbnail */}
+      {/* Thumbnail - Guaranteed image */}
       <div className="w-full h-44 relative bg-slate-950 overflow-hidden">
-        {thumbnail ? (
-          <img
-            src={thumbnail}
-            alt={item.title}
-            loading="lazy"
-            referrerPolicy="no-referrer"
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-slate-800/50">
-            <span className="text-xs uppercase font-bold tracking-wider text-slate-600">Sem Imagem</span>
-          </div>
-        )}
+        <img
+          src={proxySrc}
+          alt={cleanTitle}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).src = "/logo.jpg";
+          }}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+        />
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-80" />
 
         <span className="absolute top-2.5 left-2.5 px-2.5 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-blue-600 text-white shadow">
@@ -121,21 +122,15 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item, onSelect, layout = "ve
         <div>
           <div className="flex items-center gap-2 text-[11px] text-slate-400 mb-1.5">
             <span>{readingTime} min de leitura</span>
-            {item.sourceSite && (
-              <>
-                <span>•</span>
-                <span className="truncate max-w-[130px]">{item.sourceSite}</span>
-              </>
-            )}
           </div>
 
           <h3 className="font-serif text-base font-bold text-white group-hover:text-blue-300 transition-colors line-clamp-2 leading-snug">
-            {item.title}
+            {cleanTitle}
           </h3>
 
-          {excerpt && (
+          {cleanExcerpt && (
             <p className="text-xs text-slate-300 line-clamp-2 mt-2 leading-relaxed">
-              {excerpt}...
+              {cleanExcerpt}...
             </p>
           )}
         </div>

@@ -1,4 +1,3 @@
-# ads.txt para Norma Jurídica
 #MGID.COM
 mgid.com, 891801, DIRECT, d4c29acad76ce94f
 google.com, pub-2441454515104767, RESELLER, f08c47fec0942fa0

@@ -92,14 +92,14 @@ export const LgpdPortalPage: React.FC<LgpdPortalPageProps> = ({
       <div className="border-b border-blue-900/50 pb-6">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800/60 text-xs font-semibold uppercase tracking-wider mb-3">
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>Canal de Atendimento ao Titular de Dados Pessoais</span>
+          <span>Canal Técnico de Solicitação e Tratamento de Dados Pessoais</span>
         </div>
 
         <h1 className="font-serif text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-          Portal da LGPD • Direitos do Titular (Art. 18)
+          Tratamento de Dados Pessoais
         </h1>
         <p className="text-sm text-slate-400 mt-2">
-          Exercício transparente e direto de seus direitos fundamentais de liberdade e de privacidade nos termos da Lei Federal nº 13.709/2018.
+          Canal técnico para gerenciamento de consentimento, requisição de exclusão, retificação e confirmação de tratamento de dados pessoais no portal.
         </p>
       </div>
 
