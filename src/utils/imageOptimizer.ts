@@ -1,35 +1,72 @@
-// Utility to format and optimize images through the /next_imagem proxy endpoint
-// Ensures every news item has a high-res image and avoids duplicate renders
+// Utility to extract, optimize and render news images exclusively from API / content
+// STRICT RULE: News thumbnails and highlights must NEVER use images from the /public folder (such as /logo.jpg)
 
 import { NewsItem } from "../types";
 
 /**
- * Transforms an image URL to the optimized /next_imagem pattern
- * Supports relative, internal, and external images
+ * Creates an elegant SVG data URI as an editorial fallback placeholder
+ * featuring the category and legal scales of justice.
+ * Never references files from the /public folder.
  */
-export function toOptimizedImage(url?: string | null): string {
-  if (!url || typeof url !== "string") {
-    return "/logo.jpg";
-  }
+export function createEditorialFallbackSvg(category: string = "Notícia", title?: string): string {
+  const cat = (category || "Notícia").toUpperCase();
+  const cleanTitle = (title || "Norma Jurídica")
+    .slice(0, 45)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 
-  const trimmed = url.trim();
-  if (!trimmed) return "/logo.jpg";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b1329"/>
+      <stop offset="50%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="450" fill="url(#bgGrad)"/>
+  <rect x="20" y="20" width="760" height="410" rx="14" fill="none" stroke="#334155" stroke-width="1.5" stroke-dasharray="6 6"/>
+  <g transform="translate(370, 130) scale(2.6)" stroke="url(#goldGrad)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/>
+    <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/>
+    <path d="M7 21h10"/>
+    <path d="M12 3v18"/>
+    <path d="M3 7h18"/>
+  </g>
+  <rect x="280" y="255" width="240" height="32" rx="6" fill="#1d4ed8"/>
+  <text x="400" y="276" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="1.5">${cat}</text>
+  <text x="400" y="320" font-family="Georgia, serif" font-size="18" font-weight="bold" fill="#f8fafc" text-anchor="middle">${cleanTitle}</text>
+  <text x="400" y="348" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#94a3b8" text-anchor="middle">NORMA JURÍDICA • EDIÇÃO NACIONAL</text>
+</svg>`;
 
-  // If already relative root or proxy
-  if (trimmed.startsWith("/next_imagem?url=") || trimmed.startsWith("/next_image?url=")) {
-    return trimmed;
-  }
-  if (trimmed === "/logo.jpg" || trimmed.startsWith("/icons/") || trimmed.startsWith("/favicon")) {
-    return trimmed;
-  }
-
-  return `/next_imagem?url=${encodeURIComponent(trimmed)}`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
-export const getProxyImageUrl = toOptimizedImage;
+/**
+ * Checks if a string is a valid external or API image URL
+ * Rejects any /logo.jpg, /favicon, /og-image, or empty strings
+ */
+export function isValidApiImageUrl(url?: string | null): boolean {
+  if (!url || typeof url !== "string") return false;
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  if (
+    trimmed.includes("logo.jpg") ||
+    trimmed.includes("favicon") ||
+    trimmed.includes("og-image") ||
+    trimmed === "/logo.jpg"
+  ) {
+    return false;
+  }
+  return trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("//");
+}
 
 /**
- * Normalizes URL for duplicate comparison (removes query strings, sizing params, trailing slashes)
+ * Normalizes URL for duplicate comparison
  */
 export function normalizeImageUrl(url?: string | null): string {
   if (!url || typeof url !== "string") return "";
@@ -49,47 +86,96 @@ export function normalizeImageUrl(url?: string | null): string {
 }
 
 /**
- * Extracts a featured image and any other images from the post
+ * Transforms an image URL to the optimized /next_imagem pattern
+ * Supports relative, internal, and external images
+ */
+export function toOptimizedImage(url?: string | null, category: string = "Notícia", title?: string): string {
+  if (!url || typeof url !== "string") {
+    return createEditorialFallbackSvg(category, title);
+  }
+
+  const trimmed = url.trim();
+  if (!trimmed || !isValidApiImageUrl(trimmed)) {
+    return createEditorialFallbackSvg(category, title);
+  }
+
+  // If already relative root or proxy
+  if (trimmed.startsWith("/next_imagem?url=") || trimmed.startsWith("/next_image?url=")) {
+    return trimmed;
+  }
+
+  // Return direct URL (browsers with referrerpolicy="no-referrer" load smoothly)
+  return trimmed;
+}
+
+export const getProxyImageUrl = toOptimizedImage;
+
+/**
+ * Extracts a featured image, candidate chain, and secondary images from the post.
+ * Exclusively prioritizes API source thumbnails and content images.
  */
 export function extractPostImages(item: Partial<NewsItem>): {
   featuredImage: string;
+  candidates: string[];
   otherImages: string[];
 } {
   const images: string[] = [];
 
-  // 1. Direct fields
-  if (item.thumbnail && item.thumbnail.startsWith("http")) images.push(item.thumbnail);
-  if (item.imageUrl && item.imageUrl.startsWith("http") && !images.includes(item.imageUrl)) images.push(item.imageUrl);
-  if (item.image && item.image.startsWith("http") && !images.includes(item.image)) images.push(item.image);
+  const addCandidate = (candidate?: string | null) => {
+    if (candidate && isValidApiImageUrl(candidate)) {
+      const norm = normalizeImageUrl(candidate);
+      if (norm && !images.some((img) => normalizeImageUrl(img) === norm)) {
+        images.push(candidate.trim());
+      }
+    }
+  };
 
-  // 2. Extract from content HTML
+  // 1. Direct API / RSS fields
+  addCandidate(item.thumbnail);
+  addCandidate(item.imageUrl);
+  addCandidate(item.image);
+
+  // 2. Enclosure field (if present)
+  const enc = (item as any).enclosure;
+  if (enc) {
+    if (typeof enc === "string") {
+      addCandidate(enc);
+    } else if (typeof enc === "object" && enc.url) {
+      addCandidate(enc.url);
+    }
+  }
+
+  // 3. Extract from content HTML
   if (item.content) {
     const matches = item.content.matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+)["']/gi);
     for (const match of matches) {
-      if (match[1] && !images.includes(match[1])) {
-        images.push(match[1]);
+      if (match[1]) {
+        addCandidate(match[1]);
       }
     }
   }
 
-  // 3. Extract from description HTML
+  // 4. Extract from description HTML
   if (item.description) {
     const matches = item.description.matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+)["']/gi);
     for (const match of matches) {
-      if (match[1] && !images.includes(match[1])) {
-        images.push(match[1]);
+      if (match[1]) {
+        addCandidate(match[1]);
       }
     }
   }
 
-  const featuredImage = images[0] || "/logo.jpg";
+  // If we have at least one valid API image, that is our featured image
+  const fallbackSvg = createEditorialFallbackSvg(item.category || "Notícia", item.title);
+  const featuredImage = images[0] || fallbackSvg;
+  const candidates = images.length > 0 ? [...images, fallbackSvg] : [fallbackSvg];
   const otherImages = images.slice(1);
 
-  return { featuredImage, otherImages };
+  return { featuredImage, candidates, otherImages };
 }
 
 /**
- * Extracts a featured image or fallback image from any available field in the news item
+ * Extracts a featured image or fallback SVG from any available field in the news item
  */
 export function getPostThumbnail(item: Partial<NewsItem>): string {
   const { featuredImage } = extractPostImages(item);
@@ -99,9 +185,9 @@ export function getPostThumbnail(item: Partial<NewsItem>): string {
 /**
  * Processes post HTML content:
  * - Removes "da redação" text/paragraphs
- * - Ensures all images are routed through /next_imagem
+ * - Guarantees referrerpolicy="no-referrer" and loading="lazy" on all <img> tags
  * - Removes duplicate images that match the featured image or already appeared in the body
- * - Keeps all unique secondary images intact
+ * - Eliminates any internal public folder image references
  */
 export function processPostContent(
   rawHtml?: string,
@@ -127,26 +213,29 @@ export function processPostContent(
     const imgMatch = inner.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
     if (imgMatch && imgMatch[1]) {
       const src = imgMatch[1];
+      if (!isValidApiImageUrl(src)) return "";
       const norm = normalizeImageUrl(src);
       if (seenImages.has(norm)) {
         return ""; // Strip duplicate figure
       }
       seenImages.add(norm);
-      const optSrc = toOptimizedImage(src);
-      return figureMatch.replace(src, optSrc);
+      return figureMatch.replace(
+        /<img([^>]+)>/i,
+        `<img$1 referrerpolicy="no-referrer" loading="lazy">`
+      );
     }
     return figureMatch;
   });
 
   // Rewrite standard <img> tags
   html = html.replace(/<img([^>]+)src=["']([^"']+)["']([^>]*)>/gi, (match, before, src, after) => {
+    if (!isValidApiImageUrl(src)) return "";
     const norm = normalizeImageUrl(src);
     if (seenImages.has(norm)) {
       return ""; // Strip duplicate image
     }
     seenImages.add(norm);
-    const optSrc = toOptimizedImage(src);
-    return `<img${before}src="${optSrc}"${after}>`;
+    return `<img${before}src="${src}" referrerpolicy="no-referrer" loading="lazy"${after}>`;
   });
 
   // Clean empty figures or excessive breaks

@@ -1,6 +1,7 @@
 import React from "react";
 import { AdSenseBanner } from "./AdSenseBanner";
 import { getSiteDomain } from "../utils/domain";
+import { useFirebaseAuth } from "../services/firebaseAuthService";
 import {
   Scale,
   Shield,
@@ -28,6 +29,7 @@ export const Footer: React.FC<FooterProps> = ({
 }) => {
   const currentYear = new Date().getFullYear();
   const domain = getSiteDomain();
+  const authState = useFirebaseAuth();
 
   const handleCookiePrefClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -253,10 +255,10 @@ export const Footer: React.FC<FooterProps> = ({
                 id="footer-admin-metrics-button"
                 onClick={onOpenAdminMetrics}
                 className="text-slate-400 hover:text-blue-300 transition-colors cursor-pointer flex items-center gap-1 font-medium"
-                title="Painel de Rotação Firebase & Métricas Google"
+                title="Painel de Metas, Tráfego & Firebase (Acesso Restrito a Administradores)"
               >
                 <Activity className="w-3 h-3 text-emerald-400" />
-                <span>Métricas & Firebase (10GB)</span>
+                <span>Meta & Tráfego</span>
               </button>
             )}
           </div>

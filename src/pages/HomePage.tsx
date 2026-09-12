@@ -59,7 +59,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           <div className="flex items-center gap-2 mb-3">
             <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-ping"></span>
             <h2 className="font-serif text-sm font-bold uppercase tracking-wider text-blue-300">
-              Cobertura em Destaque • Rotação a Cada 6 Segundos
+              Cobertura em Destaque
             </h2>
           </div>
           <NewsCarousel news={carouselNews} onSelectNews={onSelectNews} />

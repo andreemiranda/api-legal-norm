@@ -1,5 +1,6 @@
 import React from "react";
 import { ShieldCheck, Lock, FileText, Scale, UserCheck, Mail, ArrowLeft } from "lucide-react";
+import { getSiteEmails } from "../utils/domain";
 
 interface LegalPageProps {
   onBack: () => void;
@@ -12,6 +13,7 @@ export const PrivacyPolicyPage: React.FC<LegalPageProps> = ({
   onNavigateToLgpd,
   onNavigateToConsent,
 }) => {
+  const siteEmails = getSiteEmails();
   return (
     <div id="privacy-policy-page" className="max-w-4xl mx-auto space-y-8 text-slate-200">
       {/* Back button */}
@@ -75,7 +77,7 @@ export const PrivacyPolicyPage: React.FC<LegalPageProps> = ({
           <ul className="list-disc pl-5 space-y-1 text-xs">
             <li><strong>Entidade:</strong> Portal Norma Jurídica de Comunicação e Informação Jurídica</li>
             <li><strong>Sede Redacional:</strong> Brasília - Distrito Federal, Brasil</li>
-            <li><strong>Canal Oficial de Contato:</strong> <code className="text-blue-300">contato@normajuridica.com.br</code></li>
+            <li><strong>Canal Oficial de Contato:</strong> <code className="text-blue-300">{siteEmails.contact}</code></li>
             <li><strong>Encarregado de Proteção de Dados (DPO):</strong> Setor de Conformidade Regulatória e Direitos Digitais</li>
           </ul>
         </section>

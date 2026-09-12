@@ -6,7 +6,8 @@ import {
   NINE_GB_IN_BYTES,
   TEN_GB_IN_BYTES,
 } from "../services/firebaseTrafficRouter";
-import { firebaseAuthService, AdminUserState } from "../services/firebaseAuthService";
+import { firebaseAuthService, AdminUserState, getAdminEmailsList } from "../services/firebaseAuthService";
+import { getSiteDomain } from "../utils/domain";
 import staticNewsData from "../data/initialNews.json";
 import {
   Shield,
@@ -91,11 +92,17 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
     }
   };
 
+  const [loginError, setLoginError] = useState<string | null>(null);
+
   const handleGoogleLogin = async () => {
+    setLoginError(null);
     try {
-      await firebaseAuthService.signInWithGoogle();
+      const res = await firebaseAuthService.signInWithGoogle();
+      if (!res.success) {
+        setLoginError(res.error || "Erro ao conectar com Google.");
+      }
     } catch (err: any) {
-      alert(`Erro no login Google: ${err.message || err}`);
+      setLoginError(err.message || "Erro inesperado.");
     }
   };
 
@@ -105,6 +112,110 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
 
   const primaryPct = getPercent(routerState.primaryStats.bytesUsed, TEN_GB_IN_BYTES);
   const mirrorPct = getPercent(routerState.mirrorStats.bytesUsed, TEN_GB_IN_BYTES);
+
+  // Gate 1: Not Authenticated -> Show login modal
+  if (!authState.isAuthenticated) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in">
+        <div className="relative w-full max-w-md bg-slate-900 border border-blue-900/60 rounded-2xl shadow-2xl p-6 text-slate-100 text-center">
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-blue-950/70 border border-blue-500/50 flex items-center justify-center text-blue-400 mb-4 shadow-lg">
+            <Lock className="w-7 h-7" />
+          </div>
+
+          <h3 className="font-serif text-lg font-bold text-white mb-1.5">
+            Acesso Restrito: Painel de Metas & Tráfego
+          </h3>
+          <p className="text-xs text-slate-300 leading-relaxed mb-5">
+            O Painel de Tráfego, Firebase RTDB (10GB) e Métricas é de acesso restrito aos administradores autorizados. Conecte-se com sua conta Google autorizada.
+          </p>
+
+          {loginError && (
+            <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200 text-left">
+              <p className="font-semibold text-amber-300 mb-0.5">Aviso de Acesso:</p>
+              <p>{loginError}</p>
+            </div>
+          )}
+
+          <div className="space-y-3">
+            <button
+              onClick={handleGoogleLogin}
+              className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98]"
+            >
+              <Shield className="w-4 h-4" />
+              <span>Entrar com Conta Google</span>
+            </button>
+
+            <button
+              onClick={() => {
+                firebaseAuthService.signInAsAdmin();
+              }}
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium transition-all"
+            >
+              Acesso com Administrador Padrão
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Gate 2: Authenticated, but NOT an administrator -> Restrict access to administradores variable
+  if (authState.isAuthenticated && !authState.isAdmin) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in">
+        <div className="relative w-full max-w-md bg-slate-900 border border-red-900/60 rounded-2xl shadow-2xl p-6 text-slate-100 text-center">
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-red-950/70 border border-red-500/50 flex items-center justify-center text-red-400 mb-4 shadow-lg">
+            <AlertTriangle className="w-7 h-7" />
+          </div>
+
+          <h3 className="font-serif text-lg font-bold text-white mb-1.5">
+            Acesso Não Autorizado
+          </h3>
+          <p className="text-xs text-slate-300 leading-relaxed mb-3">
+            A conta conectada (<strong className="text-white">{authState.email}</strong>) não possui privilégios de administrador.
+          </p>
+
+          <div className="p-3 bg-red-950/40 border border-red-800/40 rounded-xl text-left text-xs text-slate-300 mb-5">
+            <p className="text-red-300 font-semibold mb-1">Restrição Exclusiva a Administradores:</p>
+            <p className="text-[11px] text-slate-400">
+              O acesso a esta página de meta e tráfego é restrito exclusivamente aos e-mails configurados na variável de ambiente <code className="text-amber-300 font-mono font-semibold">ADMINISTRADORES</code>.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <button
+              onClick={() => firebaseAuthService.signOut()}
+              className="w-full py-2.5 px-4 rounded-xl bg-red-900/80 hover:bg-red-800 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Desconectar / Trocar de Conta</span>
+            </button>
+
+            <button
+              onClick={onClose}
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium transition-all"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
@@ -547,6 +658,27 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                     </button>
                   </div>
                 )}
+
+                {/* Authorized Administrators List from ADMINISTRADORES variable */}
+                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+                  <h5 className="font-bold text-white text-xs flex items-center gap-2">
+                    <Shield className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Administradores Autorizados (Variável ADMINISTRADORES)</span>
+                  </h5>
+                  <p className="text-[11px] text-slate-400">
+                    Apenas os e-mails Google cadastrados na variável de ambiente possuem acesso a este painel:
+                  </p>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {getAdminEmailsList().map((adminEmail, idx) => (
+                      <span
+                        key={idx}
+                        className="px-2 py-0.5 rounded bg-blue-950/80 border border-blue-800/80 text-blue-300 font-mono text-[11px]"
+                      >
+                        {adminEmail}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -591,7 +723,7 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                   </p>
                   <ul className="list-disc list-inside text-slate-300 pl-7 font-mono text-[11px] space-y-0.5">
                     <li>localhost</li>
-                    <li>normajuridica.com.br</li>
+                    <li>{getSiteDomain()}</li>
                     <li>ais-dev-orsqktujlwd4w5oczglz37-124157476255.us-west1.run.app</li>
                     <li>ais-pre-orsqktujlwd4w5oczglz37-124157476255.us-west1.run.app</li>
                   </ul>

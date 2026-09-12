@@ -299,6 +299,7 @@ function MainPortal() {
         searchTerm={searchTerm}
         totalNewsCount={news.length}
         onOpenSourcesModal={() => setIsSourcesModalOpen(true)}
+        onOpenMetrics={() => setIsAdminMetricsOpen(true)}
       />
 
       {/* 2. Main Layout Container: Content Area (left) + Right Sidebar */}

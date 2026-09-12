@@ -79,16 +79,20 @@ function cleanSlug(item: any): string {
 }
 
 function extractImage(item: any): string | null {
-  if (item.thumbnail && typeof item.thumbnail === "string" && item.thumbnail.startsWith("http")) return item.thumbnail;
-  if (item.imageUrl && typeof item.imageUrl === "string" && item.imageUrl.startsWith("http")) return item.imageUrl;
-  if (item.image && typeof item.image === "string" && item.image.startsWith("http")) return item.image;
+  if (item.thumbnail && typeof item.thumbnail === "string" && item.thumbnail.startsWith("http") && !item.thumbnail.includes("/logo.jpg") && !item.thumbnail.includes("/favicon") && !item.thumbnail.includes("/og-image")) return item.thumbnail;
+  if (item.imageUrl && typeof item.imageUrl === "string" && item.imageUrl.startsWith("http") && !item.imageUrl.includes("/logo.jpg") && !item.imageUrl.includes("/favicon") && !item.imageUrl.includes("/og-image")) return item.imageUrl;
+  if (item.image && typeof item.image === "string" && item.image.startsWith("http") && !item.image.includes("/logo.jpg") && !item.image.includes("/favicon") && !item.image.includes("/og-image")) return item.image;
+  if (item.enclosure) {
+    if (typeof item.enclosure === "string" && item.enclosure.startsWith("http")) return item.enclosure;
+    if (item.enclosure.url && typeof item.enclosure.url === "string" && item.enclosure.url.startsWith("http")) return item.enclosure.url;
+  }
   if (item.content) {
     const match = item.content.match(/<img[^>]+src=["'](https?:\/\/[^"']+)["']/i);
-    if (match && match[1]) return match[1];
+    if (match && match[1] && !match[1].includes("/logo.jpg")) return match[1];
   }
   if (item.description) {
     const match = item.description.match(/<img[^>]+src=["'](https?:\/\/[^"']+)["']/i);
-    if (match && match[1]) return match[1];
+    if (match && match[1] && !match[1].includes("/logo.jpg")) return match[1];
   }
   return null;
 }
@@ -138,9 +142,9 @@ try {
           title: decodedTitle,
           description: cleanEditorialText(decodeHtml(item.description)),
           content: cleanEditorialText(item.content),
-          thumbnail: img || "/logo.jpg",
-          imageUrl: img || "/logo.jpg",
-          image: img || "/logo.jpg",
+          thumbnail: img || extractImage(item) || "",
+          imageUrl: img || extractImage(item) || "",
+          image: img || extractImage(item) || "",
           slug: cleanSlug({ ...item, title: decodedTitle }),
         };
       })
@@ -164,11 +168,22 @@ try {
 // Site URL helper for dynamic deployments
 function getSiteUrl(req: express.Request): string {
   return (
+    process.env.NEXT_PUBLIC_DOMAIN ||
     process.env.VITE_SITE_URL ||
     process.env.VITE_APP_URL ||
     process.env.APP_URL ||
     `${req.protocol}://${req.get("host")}`
   ).replace(/\/+$/, "");
+}
+
+function getSiteDomain(req: express.Request): string {
+  const url = getSiteUrl(req);
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname;
+  } catch {
+    return url.replace(/^https?:\/\//, "").split("/")[0].split(":")[0];
+  }
 }
 
 // Fallback SVG for image errors
@@ -331,6 +346,40 @@ app.get("/api/firebase/traffic", (_req, res) => {
       mirror_configured: Boolean(mirrorDb),
       active_threshold: "9GB trigger -> failover to Project 2 (Mirror) -> fallback to Static in-code",
       google_auth_purpose: "Métricas administrativas e controle de acessos (visitantes leem livremente)",
+    },
+  });
+});
+
+// 4c. GET /api/firebase/config - Retorna configurações públicas das instâncias Firebase em tempo de execução
+app.get("/api/firebase/config", (_req, res) => {
+  const administradores =
+    process.env.ADMINISTRADORES ||
+    process.env.ADMINITRADORES ||
+    process.env.VITE_ADMINISTRADORES ||
+    process.env.VITE_ADMINITRADORES ||
+    process.env.ADMIN_EMAILS ||
+    "legislativemunicipal@gmail.com";
+
+  res.json({
+    success: true,
+    administradores,
+    primary: {
+      apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || "",
+      authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || "",
+      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL || "",
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || "",
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || "",
+      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+      appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || "",
+    },
+    mirror: {
+      apiKey: process.env.NEXT_PUBLIC_FIREBASE_2_API_KEY || process.env.VITE_FIREBASE_2_API_KEY || "",
+      authDomain: process.env.NEXT_PUBLIC_FIREBASE_2_AUTH_DOMAIN || process.env.VITE_FIREBASE_2_AUTH_DOMAIN || "",
+      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_2_DATABASE_URL || process.env.VITE_FIREBASE_2_DATABASE_URL || "",
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_2_PROJECT_ID || process.env.VITE_FIREBASE_2_PROJECT_ID || "",
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_2_STORAGE_BUCKET || process.env.VITE_FIREBASE_2_STORAGE_BUCKET || "",
+      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_2_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_2_MESSAGING_SENDER_ID || "",
+      appId: process.env.NEXT_PUBLIC_FIREBASE_2_APP_ID || process.env.VITE_FIREBASE_2_APP_ID || "",
     },
   });
 });
@@ -642,7 +691,7 @@ app.post("/api/contact", async (req, res) => {
   const smtpUser = process.env.SMTP_USER || process.env.SMTP_FROM_EMAIL;
   const googleAppPassword = process.env.GOOGLE_APP_PASSWORD || process.env.SMTP_PASSWORD;
   const toEmail = process.env.SMTP_TO_EMAIL || "ouvidoria.camarapa@gmail.com";
-  const fromEmail = process.env.SMTP_FROM_EMAIL || smtpUser || "no-reply@normajuridica.com.br";
+  const fromEmail = process.env.SMTP_FROM_EMAIL || smtpUser || `no-reply@${getSiteDomain(req)}`;
 
   const isLgpdRequest = !!requestType;
   const emailTitle = isLgpdRequest
@@ -736,14 +785,29 @@ app.post("/api/contact", async (req, res) => {
 
 // /ads.txt
 app.get("/ads.txt", (_req, res) => {
+  const publicAdsPath = path.join(process.cwd(), "public", "ads.txt");
+  const distAdsPath = path.join(process.cwd(), "dist", "ads.txt");
+  let content = "";
+  if (fs.existsSync(publicAdsPath)) {
+    content = fs.readFileSync(publicAdsPath, "utf-8");
+  } else if (fs.existsSync(distAdsPath)) {
+    content = fs.readFileSync(distAdsPath, "utf-8");
+  }
+
   const clientId =
     process.env.GOOGLE_ADSENSE_CLIENT_ID ||
     process.env.VITE_GOOGLE_ADSENSE_CLIENT_ID ||
-    "pub-0000000000000000";
-  const cleanId = clientId.replace(/^ca-/, "");
-  res
-    .type("text/plain")
-    .send(`# ads.txt para Norma Jurídica\ngoogle.com, ${cleanId}, DIRECT, f08c47fec0942fa0\n`);
+    process.env.NEXT_PUBLIC_ADSENSE_ID ||
+    "";
+  if (clientId) {
+    const cleanId = clientId.replace(/^ca-/, "");
+    const line = `google.com, ${cleanId}, DIRECT, f08c47fec0942fa0`;
+    if (!content.includes(cleanId)) {
+      content = `${content.trim()}\n${line}\n`;
+    }
+  }
+
+  res.type("text/plain").send(content || "google.com, pub-0000000000000000, DIRECT, f08c47fec0942fa0\n");
 });
 
 // /robots.txt

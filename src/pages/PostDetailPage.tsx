@@ -34,10 +34,24 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
   const [copied, setCopied] = useState(false);
   const headlineRef = useRef<HTMLDivElement>(null);
 
-  // Extract all images and determine guaranteed featured image
-  const { featuredImage } = useMemo(() => {
+  // Extract all images and determine candidate chain
+  const { candidates } = useMemo(() => {
     return extractPostImages(post);
   }, [post]);
+  const [candidateIdx, setCandidateIdx] = useState(0);
+
+  // Reset candidate index on post change
+  useEffect(() => {
+    setCandidateIdx(0);
+  }, [post.id, post.slug]);
+
+  const currentFeaturedImage = candidates[candidateIdx] || candidates[0];
+
+  const handleFeaturedImageError = () => {
+    if (candidateIdx + 1 < candidates.length) {
+      setCandidateIdx((prev) => prev + 1);
+    }
+  };
 
   const readingTime = calculateReadingTime(post.content || post.description);
   const currentUrl = typeof window !== "undefined" ? window.location.href : "";
@@ -54,8 +68,8 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
   // Clean and optimize post content: deduplicates featured image and cleans editorial boilerplate
   const sanitizedContent = useMemo(() => {
     if (!post.content) return "";
-    return processPostContent(post.content, featuredImage);
-  }, [post.content, featuredImage]);
+    return processPostContent(post.content, currentFeaturedImage);
+  }, [post.content, currentFeaturedImage]);
 
   const cleanTitle = useMemo(() => {
     return (post.title || "")
@@ -209,15 +223,13 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
       </div>
 
       {/* Featured Image - Guaranteed and centered */}
-      {featuredImage && (
+      {currentFeaturedImage && (
         <div className="w-full rounded-2xl overflow-hidden border border-blue-900/40 bg-slate-950 relative shadow-2xl">
           <img
-            src={getProxyImageUrl(featuredImage)}
+            src={currentFeaturedImage}
             alt={cleanTitle}
             referrerPolicy="no-referrer"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).src = "/logo.jpg";
-            }}
+            onError={handleFeaturedImageError}
             className="w-full h-[320px] sm:h-[440px] object-cover object-center"
           />
           <div className="p-2.5 bg-slate-950 text-[11px] text-slate-400 flex items-center justify-between border-t border-slate-900">
@@ -265,11 +277,14 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
                 >
                   <div className="w-full h-28 overflow-hidden bg-slate-950">
                     <img
-                      src={getProxyImageUrl(rThumb)}
+                      src={rThumb}
                       alt={r.title}
                       referrerPolicy="no-referrer"
                       onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).src = "/logo.jpg";
+                        const fallback = rImages.candidates[1] || rImages.candidates[rImages.candidates.length - 1];
+                        if (fallback) {
+                          (e.currentTarget as HTMLImageElement).src = fallback;
+                        }
                       }}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                     />

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { getSiteEmails } from "../utils/domain";
 import {
   Mail,
   Send,
@@ -19,6 +20,7 @@ interface ContactPageProps {
 }
 
 export const ContactPage: React.FC<ContactPageProps> = ({ onBack, onNavigateToLgpd }) => {
+  const siteEmails = getSiteEmails();
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -118,7 +120,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onBack, onNavigateToLg
                 <div>
                   <span className="text-slate-400">E-mail de Contato:</span>
                   <br />
-                  <code className="text-blue-300 font-mono">contato@normajuridica.com.br</code>
+                  <code className="text-blue-300 font-mono">{siteEmails.contact}</code>
                 </div>
               </div>
 
@@ -156,7 +158,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onBack, onNavigateToLg
                 Mensagem Transmitida com Sucesso!
               </h3>
               <p className="text-xs text-slate-300 max-w-md mx-auto">
-                Sua comunicação foi despachada para a nossa caixa postal (<code className="text-emerald-300 font-mono">contato@normajuridica.com.br</code>) através do servidor SMTP integrado.
+                Sua comunicação foi despachada para a nossa caixa postal (<code className="text-emerald-300 font-mono">{siteEmails.contact}</code>) através do servidor SMTP integrado.
               </p>
               <div className="inline-block bg-slate-900 border border-emerald-600/60 px-4 py-2 rounded-lg text-sm font-mono text-emerald-300 font-bold">
                 Protocolo: {protocol}
