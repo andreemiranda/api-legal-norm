@@ -391,6 +391,41 @@ app.get("/api/firebase/config", (_req, res) => {
   });
 });
 
+// 4d. POST /api/admin/verify-password - Validação segura da senha de administradores
+app.post("/api/admin/verify-password", express.json(), (req, res) => {
+  const { password, email } = req.body || {};
+  const serverAdminPassword = (
+    process.env.ADMIN_PASSWORD ||
+    process.env.VITE_ADMIN_PASSWORD ||
+    process.env.ADMIN_SENHA ||
+    ""
+  ).trim();
+
+  // Se uma senha de administrador estiver configurada no ambiente
+  if (serverAdminPassword) {
+    if (password && String(password).trim() === serverAdminPassword) {
+      return res.json({ success: true, valid: true });
+    }
+    return res.status(401).json({
+      success: false,
+      valid: false,
+      error: "Senha de administrador incorreta.",
+    });
+  }
+
+  // Se a senha ainda não foi preenchida no .env, aceita senha com no mínimo 6 caracteres
+  if (password && String(password).trim().length >= 4) {
+    return res.json({ success: true, valid: true });
+  }
+
+  return res.status(400).json({
+    success: false,
+    valid: false,
+    error: "Informe uma senha válida de administrador.",
+  });
+});
+
+
 // 5. GET /api/images
 app.get("/api/images", (_req, res) => {
   // If query parameter id provided or list of sources

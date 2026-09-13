@@ -45,44 +45,42 @@ export const FooterGrid: React.FC<FooterGridProps> = ({
                   Radar Editorial • Destaques da Redação
                 </h3>
                 {featuredCategory && (
-                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-900/80 text-blue-300 border border-blue-700/60 font-sans">
+                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/80 text-blue-900 dark:text-blue-300 border border-blue-300 dark:border-blue-700/60 font-sans shadow-sm">
                     {isFilteredByCategory ? `Editoria: ${featuredCategory}` : `Foco: ${featuredCategory}`}
                   </span>
                 )}
               </div>
-              <p className="text-xs text-blue-300/80 mt-1">
-                {isFilteredByCategory
-                  ? `Exibindo exclusivamente as notícias mais recentes da editoria "${featuredCategory}" (${items.length} matérias)`
-                  : `Rotação inteligente contemplando todas as editorias a cada atualização • Notícias mais recentes da redação`}
-              </p>
+              {isFilteredByCategory && (
+                <p className="text-xs text-blue-800 dark:text-blue-300/80 mt-1">
+                  Exibindo exclusivamente as notícias mais recentes da editoria "{featuredCategory}" ({items.length} matérias)
+                </p>
+              )}
             </div>
           </div>
 
-          {/* Action / State Badge */}
+          {/* Action / State Button */}
           <div className="flex items-center gap-2 self-start sm:self-auto">
             {isFilteredByCategory ? (
               <button
                 onClick={() => onSelectCategory?.("Todas")}
-                className="text-xs font-semibold text-blue-200 hover:text-white bg-blue-950/90 hover:bg-blue-900 px-3 py-1.5 rounded-full border border-blue-700/60 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                className="text-xs font-semibold text-blue-900 dark:text-blue-200 hover:text-blue-700 dark:hover:text-white bg-blue-100 dark:bg-blue-950/90 hover:bg-blue-200 dark:hover:bg-blue-900 px-3 py-1.5 rounded-full border border-blue-300 dark:border-blue-700/60 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
                 title="Voltar para todas as editorias com rotação contínua"
               >
-                <Layers className="w-3.5 h-3.5 text-blue-400" />
+                <Layers className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                 <span>Ver Todas as Editorias</span>
               </button>
             ) : (
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 text-xs text-emerald-300 font-semibold uppercase tracking-wider bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-800/60">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>Rotação Ativa</span>
-                </span>
                 {onRotateCategory && (
                   <button
+                    id="rotate-category-btn"
                     onClick={onRotateCategory}
-                    className="p-1.5 rounded-lg bg-slate-900 hover:bg-blue-950 border border-slate-700/70 hover:border-blue-700/60 text-slate-300 hover:text-blue-300 transition-colors cursor-pointer"
-                    title="Alternar para a próxima editoria em rotação"
-                    aria-label="Girar editoria"
+                    className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-blue-950 border border-slate-300 dark:border-slate-700/70 text-slate-800 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                    title="Atualizar editorias em rotação"
+                    aria-label="Atualizar editorias"
                   >
-                    <RefreshCw className="w-4 h-4" />
+                    <RefreshCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                    <span>Atualizar Editorias</span>
                   </button>
                 )}
               </div>
