@@ -11,13 +11,17 @@ import {
   Filter,
   Layers,
   ArrowUpDown,
-  Search
+  Search,
+  RefreshCw
 } from "lucide-react";
 
 interface HomePageProps {
   news: NewsItem[];
   allNewsCount: number;
   carouselNews: NewsItem[];
+  carouselCategory?: string;
+  isCarouselFiltered?: boolean;
+  onRotateCarousel?: () => void;
   selectedCategory: string;
   onSelectCategory: (category: string) => void;
   onSelectNews: (item: NewsItem) => void;
@@ -36,6 +40,9 @@ export const HomePage: React.FC<HomePageProps> = ({
   news,
   allNewsCount,
   carouselNews,
+  carouselCategory,
+  isCarouselFiltered,
+  onRotateCarousel,
   selectedCategory,
   onSelectCategory,
   onSelectNews,
@@ -56,13 +63,34 @@ export const HomePage: React.FC<HomePageProps> = ({
       {/* 1. News Carousel (Only on Page 1 and when no search/source filter active) */}
       {currentPage === 1 && !searchTerm && !selectedSourceId && (
         <section aria-label="Carrossel de Notícias Principais">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-ping"></span>
-            <h2 className="font-serif text-sm font-bold uppercase tracking-wider text-blue-300">
-              Cobertura em Destaque
-            </h2>
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-ping"></span>
+              <h2 className="font-serif text-sm font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1.5">
+                <span>Cobertura em Destaque</span>
+                {carouselCategory && (
+                  <span className="text-white font-sans text-xs font-semibold">
+                    • {isCarouselFiltered ? `Editoria: ${carouselCategory}` : `Foco: ${carouselCategory}`}
+                  </span>
+                )}
+              </h2>
+            </div>
+            {!isCarouselFiltered && onRotateCarousel && (
+              <button
+                onClick={onRotateCarousel}
+                className="text-[11px] text-blue-300 hover:text-white flex items-center gap-1 bg-slate-900/90 px-2.5 py-1 rounded-lg border border-blue-800/60 hover:bg-blue-950 transition-colors cursor-pointer"
+                title="Girar para a próxima editoria em destaque"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span className="hidden sm:inline">Girar Editoria</span>
+              </button>
+            )}
           </div>
-          <NewsCarousel news={carouselNews} onSelectNews={onSelectNews} />
+          <NewsCarousel
+            news={carouselNews}
+            onSelectNews={onSelectNews}
+            onSelectCategory={onSelectCategory}
+          />
         </section>
       )}
 

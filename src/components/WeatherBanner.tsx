@@ -11,34 +11,13 @@ import {
   Wind,
   Droplets,
   MapPin,
-  RefreshCw,
-  Search,
-  Check
+  RefreshCw
 } from "lucide-react";
-
-const CAPITAL_OPTIONS = [
-  { city: "Brasília", state: "DF", lat: -15.7975, lon: -47.8919 },
-  { city: "São Paulo", state: "SP", lat: -23.5505, lon: -46.6333 },
-  { city: "Rio de Janeiro", state: "RJ", lat: -22.9068, lon: -43.1729 },
-  { city: "Belo Horizonte", state: "MG", lat: -19.9167, lon: -43.9345 },
-  { city: "Curitiba", state: "PR", lat: -25.4290, lon: -49.2671 },
-  { city: "Porto Alegre", state: "RS", lat: -30.0346, lon: -51.2177 },
-  { city: "Salvador", state: "BA", lat: -12.9714, lon: -38.5014 },
-  { city: "Fortaleza", state: "CE", lat: -3.7172, lon: -38.5433 },
-  { city: "Recife", state: "PE", lat: -8.0476, lon: -34.8770 },
-  { city: "Goiânia", state: "GO", lat: -16.6869, lon: -49.2648 },
-  { city: "Palmas", state: "TO", lat: -10.2128, lon: -48.3603 },
-  { city: "Belém", state: "PA", lat: -1.4558, lon: -48.4902 },
-  { city: "Manaus", state: "AM", lat: -3.1190, lon: -60.0217 },
-  { city: "Florianópolis", state: "SC", lat: -27.5954, lon: -48.5480 },
-];
 
 export const WeatherBanner: React.FC = () => {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [isLocating, setIsLocating] = useState<boolean>(false);
-  const [showCityPicker, setShowCityPicker] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState<string>("");
 
   const fetchWeather = useCallback(async (lat: number, lon: number, cityName: string, stateName: string) => {
     setLoading(true);
@@ -176,12 +155,6 @@ export const WeatherBanner: React.FC = () => {
     return <Cloud className="w-8 h-8 text-slate-300" />;
   };
 
-  const filteredCapitals = CAPITAL_OPTIONS.filter(
-    (c) =>
-      c.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.state.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   return (
     <div
       id="weather-banner"
@@ -196,58 +169,16 @@ export const WeatherBanner: React.FC = () => {
 
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setShowCityPicker(!showCityPicker)}
-            title="Alterar cidade"
-            className="text-[11px] px-2 py-0.5 rounded bg-blue-900/60 hover:bg-blue-800 text-blue-200 border border-blue-700/50 transition-colors"
-          >
-            {showCityPicker ? "Fechar" : "Trocar"}
-          </button>
-          <button
             onClick={detectLocalCity}
             disabled={isLocating || loading}
-            title="Detectar minha cidade local via GPS/IP"
-            className="p-1 rounded text-blue-300 hover:text-white hover:bg-blue-900/60 transition-colors disabled:opacity-40"
+            title="Atualizar clima local"
+            className="p-1 px-1.5 rounded text-blue-300 hover:text-white hover:bg-blue-900/60 transition-colors disabled:opacity-40 flex items-center gap-1 text-[11px]"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLocating || loading ? "animate-spin" : ""}`} />
+            <span className="text-[10px]">Atualizar</span>
           </button>
         </div>
       </div>
-
-      {/* City Picker Dropdown */}
-      {showCityPicker && (
-        <div className="mb-3 bg-slate-950/95 border border-blue-700/60 rounded-lg p-2.5 text-xs">
-          <div className="relative mb-2">
-            <Search className="w-3.5 h-3.5 absolute left-2 top-2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Filtrar cidade..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded pl-7 pr-2 py-1 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
-            />
-          </div>
-
-          <div className="max-h-36 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
-            {filteredCapitals.map((cap, idx) => (
-              <button
-                key={`weather-cap-${cap.city}-${cap.state}-${idx}`}
-                onClick={() => {
-                  fetchWeather(cap.lat, cap.lon, cap.city, cap.state);
-                  setShowCityPicker(false);
-                }}
-                className={`w-full text-left px-2 py-1 rounded flex items-center justify-between hover:bg-blue-900/70 transition-colors ${
-                  weather?.city === cap.city ? "bg-blue-950 text-blue-300 font-semibold" : "text-slate-300"
-                }`}
-              >
-                <span>
-                  {cap.city} - {cap.state}
-                </span>
-                {weather?.city === cap.city && <Check className="w-3 h-3 text-blue-400" />}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Weather Content */}
       {loading ? (

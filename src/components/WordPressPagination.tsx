@@ -57,6 +57,7 @@ export const WordPressPagination: React.FC<WordPressPaginationProps> = ({
 
   return (
     <nav
+      id="wordpress-pagination"
       aria-label="Paginação estilo WordPress"
       className="my-8 pt-6 border-t border-blue-900/40 flex flex-col sm:flex-row items-center justify-between gap-4 select-none"
     >

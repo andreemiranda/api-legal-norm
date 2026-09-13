@@ -2,15 +2,26 @@ import React from "react";
 import { NewsItem } from "../types";
 import { extractThumbnail } from "../utils/imageFallback";
 import { formatRelativeTime } from "../utils/date";
-import { Newspaper, Clock, ArrowRight } from "lucide-react";
+import { Newspaper, Clock, ArrowRight, RefreshCw, Layers, CheckCircle2 } from "lucide-react";
 
 interface FooterGridProps {
   news: NewsItem[];
+  featuredCategory?: string;
+  isFilteredByCategory?: boolean;
   onSelectNews: (item: NewsItem) => void;
+  onSelectCategory?: (category: string) => void;
+  onRotateCategory?: () => void;
 }
 
-export const FooterGrid: React.FC<FooterGridProps> = ({ news, onSelectNews }) => {
-  // Exactly 8 items for a 2-line x 4-column layout as requested
+export const FooterGrid: React.FC<FooterGridProps> = ({
+  news,
+  featuredCategory,
+  isFilteredByCategory = false,
+  onSelectNews,
+  onSelectCategory,
+  onRotateCategory,
+}) => {
+  // Up to 8 items for a 2-line x 4-column layout
   const items = news.slice(0, 8);
 
   if (items.length === 0) return null;
@@ -18,29 +29,65 @@ export const FooterGrid: React.FC<FooterGridProps> = ({ news, onSelectNews }) =>
   return (
     <section
       id="pre-footer-grid"
-      aria-label="Notícias em Destaque no Portal"
-      className="w-full bg-slate-950/90 border-t border-blue-900/60 py-10 px-4 mt-16"
+      aria-label="Radar Editorial - Destaques da Redação"
+      className="w-full bg-slate-950/95 border-t border-blue-900/60 py-10 px-4 mt-16"
     >
       <div className="max-w-7xl mx-auto">
         {/* Section Header */}
-        <div className="flex items-center justify-between pb-4 mb-6 border-b border-blue-900/40">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-blue-900/60 border border-blue-700/50">
-              <Newspaper className="w-4 h-4 text-blue-300" />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 mb-6 border-b border-blue-900/40">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-blue-900/60 border border-blue-700/50 text-blue-300 shrink-0 shadow-md">
+              <Newspaper className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-serif text-lg font-bold text-white tracking-wide">
-                Radar Editorial • Destaques da Redação
-              </h3>
-              <p className="text-xs text-blue-300/70">
-                Seleção das principais coberturas jornalísticas e jurídicas em 8 matérias
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-serif text-lg sm:text-xl font-bold text-white tracking-wide">
+                  Radar Editorial • Destaques da Redação
+                </h3>
+                {featuredCategory && (
+                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-900/80 text-blue-300 border border-blue-700/60 font-sans">
+                    {isFilteredByCategory ? `Editoria: ${featuredCategory}` : `Foco: ${featuredCategory}`}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-blue-300/80 mt-1">
+                {isFilteredByCategory
+                  ? `Exibindo exclusivamente as notícias mais recentes da editoria "${featuredCategory}" (${items.length} matérias)`
+                  : `Rotação inteligente contemplando todas as editorias a cada atualização • Notícias mais recentes da redação`}
               </p>
             </div>
           </div>
 
-          <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-blue-300 font-semibold uppercase tracking-wider bg-blue-950 px-3 py-1 rounded-full border border-blue-800/60">
-            <span>Destaques</span>
-          </span>
+          {/* Action / State Badge */}
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            {isFilteredByCategory ? (
+              <button
+                onClick={() => onSelectCategory?.("Todas")}
+                className="text-xs font-semibold text-blue-200 hover:text-white bg-blue-950/90 hover:bg-blue-900 px-3 py-1.5 rounded-full border border-blue-700/60 flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                title="Voltar para todas as editorias com rotação contínua"
+              >
+                <Layers className="w-3.5 h-3.5 text-blue-400" />
+                <span>Ver Todas as Editorias</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs text-emerald-300 font-semibold uppercase tracking-wider bg-emerald-950/80 px-3 py-1 rounded-full border border-emerald-800/60">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Rotação Ativa</span>
+                </span>
+                {onRotateCategory && (
+                  <button
+                    onClick={onRotateCategory}
+                    className="p-1.5 rounded-lg bg-slate-900 hover:bg-blue-950 border border-slate-700/70 hover:border-blue-700/60 text-slate-300 hover:text-blue-300 transition-colors cursor-pointer"
+                    title="Alternar para a próxima editoria em rotação"
+                    aria-label="Girar editoria"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* 2 Lines x 4 Columns Grid (8 cards) */}
@@ -70,7 +117,14 @@ export const FooterGrid: React.FC<FooterGridProps> = ({ news, onSelectNews }) =>
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-80" />
 
-                  <span className="absolute top-2 left-2 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-600 text-white shadow-sm">
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (item.category) onSelectCategory?.(item.category);
+                    }}
+                    className="absolute top-2 left-2 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-600 hover:bg-blue-500 text-white shadow-sm transition-colors cursor-pointer"
+                    title={`Filtrar somente notícias de ${item.category}`}
+                  >
                     {item.category || "Geral"}
                   </span>
                 </div>
@@ -99,3 +153,4 @@ export const FooterGrid: React.FC<FooterGridProps> = ({ news, onSelectNews }) =>
     </section>
   );
 };
+

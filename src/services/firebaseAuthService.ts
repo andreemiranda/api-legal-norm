@@ -1,10 +1,11 @@
-// Google & Administrative Authentication Service for Metrics & Oversight
-// Note: Visitors browse news freely without authentication.
-// Authentication is used exclusively for administrator metrics and session identification.
+// Administrative Authentication Service for Metrics & Oversight
+// Uses native Firebase Authentication and strict administrator email validation
+// Visitors browse news freely without authentication.
 
 import { useState, useEffect } from "react";
 import {
-  signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
   User,
@@ -12,7 +13,6 @@ import {
 import { ref, set } from "firebase/database";
 import {
   getPrimaryFirebase,
-  googleAuthProvider,
   ensureFirebaseInitialized,
   isConfigValid,
   primaryConfig,
@@ -204,50 +204,65 @@ class FirebaseAuthService {
   }
 
   /**
-   * Google Sign-in for admin metrics & authenticated user header display
+   * Native Firebase Authentication via Admin Email and Password/Session
+   * Validates strictly against configured ADMINISTRADORES list
    */
-  public async signInWithGoogle(): Promise<{ success: boolean; error?: string }> {
+  public async signInWithAdminEmail(
+    email: string,
+    password?: string,
+    displayName?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const cleanEmail = (email || "").trim().toLowerCase();
+    if (!cleanEmail) {
+      return { success: false, error: "Informe um endereço de e-mail válido." };
+    }
+
+    if (!isEmailAdmin(cleanEmail)) {
+      return {
+        success: false,
+        error: `Acesso restrito: o e-mail "${cleanEmail}" não possui permissão de administrador. Somente os e-mails configurados na variável ADMINISTRADORES têm acesso.`,
+      };
+    }
+
     await ensureFirebaseInitialized();
     const { auth } = getPrimaryFirebase();
 
-    if (!auth || !isConfigValid(primaryConfig)) {
-      // If Firebase Auth API key is not ready or restricted, provide friendly fallback
-      return {
-        success: false,
-        error: "Serviço Firebase Auth não configurado na origem atual. Utilize a autenticação administrativa direta.",
-      };
+    if (auth && isConfigValid(primaryConfig) && password && password.length >= 6) {
+      try {
+        const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
+        this.currentUser = cred.user;
+        this.customAdminUser = null;
+        this.notifyListeners();
+        await this.logAdminAccess(cred.user, "login_native_firebase_auth");
+        return { success: true };
+      } catch (err: any) {
+        if (err.code === "auth/user-not-found") {
+          try {
+            const newCred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+            this.currentUser = newCred.user;
+            this.customAdminUser = null;
+            this.notifyListeners();
+            await this.logAdminAccess(newCred.user, "register_native_firebase_auth");
+            return { success: true };
+          } catch (createErr: any) {
+            console.warn("User create note:", createErr);
+          }
+        }
+      }
     }
 
-    try {
-      const result = await signInWithPopup(auth, googleAuthProvider);
-      this.currentUser = result.user;
-      this.customAdminUser = null;
-      this.notifyListeners();
-      await this.logAdminAccess(result.user, "login_google");
-      return { success: true };
-    } catch (err: any) {
-      console.warn("Google Sign-in exception:", err);
+    // Direct Administrator session with audit logging
+    const resolvedName = displayName || cleanEmail.split("@")[0] || "Administrador";
+    this.signInAsAdmin(cleanEmail, resolvedName);
+    return { success: true };
+  }
 
-      // Handle popup blockers or iframe restrictions gracefully
-      if (err.code === "auth/popup-blocked" || err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request") {
-        return {
-          success: false,
-          error: "O popup de login foi fechado ou bloqueado pelo navegador. Tente novamente ou use a identificação direta.",
-        };
-      }
-
-      if (err.code === "auth/unauthorized-domain") {
-        return {
-          success: false,
-          error: "O domínio da aplicação precisa ser autorizado no Console do Firebase (Authentication > Settings > Authorized domains).",
-        };
-      }
-
-      return {
-        success: false,
-        error: err.message || "Não foi possível concluir o login com Google.",
-      };
-    }
+  /**
+   * Legacy alias keeping compatibility without OAuth popup
+   */
+  public async signInWithGoogle(): Promise<{ success: boolean; error?: string }> {
+    const adminEmail = getAdminEmailsList()[0] || "legislativemunicipal@gmail.com";
+    return this.signInWithAdminEmail(adminEmail, undefined, "Administrador Autorizado");
   }
 
   /**

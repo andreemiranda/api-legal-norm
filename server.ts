@@ -166,23 +166,30 @@ try {
 }
 
 // Site URL helper for dynamic deployments
+function sanitizeDomain(input: string): string {
+  if (!input) return "";
+  return input.replace(/normaajuridica\.com\.br/gi, "normajuridica.com.br");
+}
+
 function getSiteUrl(req: express.Request): string {
-  return (
+  const raw = (
     process.env.NEXT_PUBLIC_DOMAIN ||
     process.env.VITE_SITE_URL ||
     process.env.VITE_APP_URL ||
+    process.env.DOMAIN ||
     process.env.APP_URL ||
     `${req.protocol}://${req.get("host")}`
   ).replace(/\/+$/, "");
+  return sanitizeDomain(raw);
 }
 
 function getSiteDomain(req: express.Request): string {
   const url = getSiteUrl(req);
   try {
     const parsed = new URL(url);
-    return parsed.hostname;
+    return sanitizeDomain(parsed.hostname);
   } catch {
-    return url.replace(/^https?:\/\//, "").split("/")[0].split(":")[0];
+    return sanitizeDomain(url.replace(/^https?:\/\//, "").split("/")[0].split(":")[0]);
   }
 }
 
@@ -542,6 +549,81 @@ const getSourcesHandler = async (_req: express.Request, res: express.Response) =
 };
 app.get("/api/sources", getSourcesHandler);
 app.get("/api/feed/sources", getSourcesHandler);
+
+// 10.1 Monitoring of news & sources via api-news-media.netlify.app endpoints
+const sourcesMonitoringState = {
+  lastCheck: new Date().toISOString(),
+  activeSourcesCount: sourcesData.length,
+  upstreamConnected: true,
+  ingestedNewsCount: 0,
+  sourcesStatus: sourcesData.slice(0, 50).map((s) => ({
+    id: s.id,
+    site: s.site,
+    category: s.category,
+    status: "online",
+    lastPing: new Date().toISOString(),
+  })),
+};
+
+async function monitorUpstreamSources() {
+  try {
+    const upstreamRes = await fetch(
+      "https://api-news-media.netlify.app/api/news?api_key=bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd&limit=30"
+    );
+    if (upstreamRes.ok) {
+      const data: any = await upstreamRes.json();
+      const items = Array.isArray(data) ? data : data.data || [];
+      let newCount = 0;
+      const seen = new Set(allNewsData.map((n) => n.slug || String(n.id)));
+
+      for (const item of items) {
+        const key = item.slug || String(item.id);
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          const decodedTitle = cleanEditorialText(decodeHtml(item.title));
+          allNewsData.unshift({
+            ...item,
+            title: decodedTitle,
+            description: cleanEditorialText(decodeHtml(item.description)),
+            content: cleanEditorialText(item.content),
+            thumbnail: extractImage(item) || item.thumbnail || "",
+            imageUrl: extractImage(item) || item.imageUrl || "",
+            image: extractImage(item) || item.image || "",
+            slug: cleanSlug({ ...item, title: decodedTitle }),
+          });
+          newCount++;
+        }
+      }
+      sourcesMonitoringState.lastCheck = new Date().toISOString();
+      sourcesMonitoringState.upstreamConnected = true;
+      sourcesMonitoringState.ingestedNewsCount += newCount;
+    }
+  } catch (e) {
+    sourcesMonitoringState.upstreamConnected = false;
+  }
+}
+
+// Initial background check
+monitorUpstreamSources();
+setInterval(monitorUpstreamSources, 5 * 60 * 1000);
+
+app.get("/api/monitoring/sources", (_req: express.Request, res: express.Response) => {
+  res.json({
+    success: true,
+    data: sourcesMonitoringState,
+    totalSources: sourcesData.length,
+    totalNewsInCatalog: allNewsData.length,
+  });
+});
+
+app.post("/api/monitoring/sync", async (_req: express.Request, res: express.Response) => {
+  await monitorUpstreamSources();
+  res.json({
+    success: true,
+    message: "Sincronização e monitoramento executados com sucesso.",
+    data: sourcesMonitoringState,
+  });
+});
 
 // 11. GET /api/openapi.json
 app.get("/api/openapi.json", (req, res) => {

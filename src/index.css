@@ -20,122 +20,816 @@
   background: rgba(59, 130, 246, 0.8);
 }
 
-/* Light Mode Overrides */
+/* =========================================================================
+   LIGHT MODE COMPLETE TRANSFORMATION - WCAG AA COMPLIANT & JOURNALISTIC AESTHETIC
+   ========================================================================= */
+
 html.light-mode,
 body.light-mode {
   background-color: #f8fafc !important;
   color: #0f172a !important;
 }
 
+html.light-mode body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* -------------------------------------------------------------------------
+   1. GLOBAL TEXT CONTRAST IN LIGHT MODE
+   - Ensures no white/light text on light surfaces
+   ------------------------------------------------------------------------- */
+html.light-mode h1,
+html.light-mode h2,
+html.light-mode h3,
+html.light-mode h4,
+html.light-mode h5,
+html.light-mode h6 {
+  color: #0f172a !important;
+}
+
+/* By default, text-white becomes high-contrast dark in light mode */
+html.light-mode .text-white {
+  color: #0f172a !important;
+}
+
+html.light-mode .text-slate-100,
+html.light-mode .text-slate-200 {
+  color: #0f172a !important;
+}
+
+html.light-mode .text-slate-300,
+html.light-mode .text-slate-400 {
+  color: #334155 !important;
+}
+
+html.light-mode .text-slate-500 {
+  color: #64748b !important;
+}
+
+html.light-mode .text-blue-100,
+html.light-mode .text-blue-200,
+html.light-mode .text-blue-300,
+html.light-mode .text-blue-400 {
+  color: #1d4ed8 !important;
+}
+
+html.light-mode .text-emerald-200,
+html.light-mode .text-emerald-300,
+html.light-mode .text-emerald-400 {
+  color: #047857 !important;
+}
+
+html.light-mode .text-amber-200,
+html.light-mode .text-amber-300,
+html.light-mode .text-amber-400 {
+  color: #b45309 !important;
+}
+
+html.light-mode .text-rose-200,
+html.light-mode .text-rose-300,
+html.light-mode .text-rose-400 {
+  color: #be123c !important;
+}
+
+/* -------------------------------------------------------------------------
+   2. PRIMARY BUTTONS & SENSITIVE CONTROLS
+   - Saturated Blue/Primary buttons MUST HAVE PURE WHITE TEXT (#ffffff)
+   - NEVER dark text on blue button, NEVER matching color
+   ------------------------------------------------------------------------- */
+html.light-mode button.bg-blue-600,
+html.light-mode button.bg-blue-700,
+html.light-mode button.bg-blue-800,
+html.light-mode button.bg-blue-500,
+html.light-mode a.bg-blue-600,
+html.light-mode a.bg-blue-700,
+html.light-mode #header-login-button,
+html.light-mode .btn-primary,
+html.light-mode button[type="submit"]:not(.bg-slate-800):not(.bg-slate-900),
+html.light-mode button[aria-current="page"] {
+  background-color: #2563eb !important;
+  border-color: #2563eb !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+html.light-mode button.bg-blue-600 *,
+html.light-mode button.bg-blue-700 *,
+html.light-mode button.bg-blue-800 *,
+html.light-mode button.bg-blue-500 *,
+html.light-mode a.bg-blue-600 *,
+html.light-mode a.bg-blue-700 *,
+html.light-mode #header-login-button *,
+html.light-mode .btn-primary *,
+html.light-mode button[type="submit"]:not(.bg-slate-800):not(.bg-slate-900) *,
+html.light-mode button[aria-current="page"] * {
+  color: #ffffff !important;
+}
+
+html.light-mode button.bg-blue-600:hover,
+html.light-mode button.bg-blue-700:hover,
+html.light-mode button.bg-blue-500:hover,
+html.light-mode a.bg-blue-600:hover,
+html.light-mode #header-login-button:hover {
+  background-color: #1d4ed8 !important;
+  border-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+html.light-mode button.bg-blue-600:hover *,
+html.light-mode button.bg-blue-700:hover *,
+html.light-mode button.bg-blue-500:hover *,
+html.light-mode a.bg-blue-600:hover *,
+html.light-mode #header-login-button:hover * {
+  color: #ffffff !important;
+}
+
+/* Category thumbnail badges on images */
+html.light-mode span.bg-blue-600,
+html.light-mode span.bg-blue-700,
+html.light-mode span[class*="bg-blue-600"] {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+}
+html.light-mode span.bg-blue-600 *,
+html.light-mode span[class*="bg-blue-600"] * {
+  color: #ffffff !important;
+}
+
+/* -------------------------------------------------------------------------
+   3. SECONDARY BUTTONS (FORMER DARK SLATE BUTTONS)
+   - Transformed into clean, light buttons with crisp dark text
+   - Never dark text on dark button, never white text on light button
+   ------------------------------------------------------------------------- */
+html.light-mode button.bg-slate-800,
+html.light-mode button.bg-slate-900,
+html.light-mode button.bg-slate-950,
+html.light-mode button[class*="bg-slate-800"]:not(.bg-blue-600),
+html.light-mode button[class*="bg-slate-900"]:not(.bg-blue-600),
+html.light-mode button[class*="bg-slate-950"]:not(.bg-blue-600) {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #1e293b !important;
+}
+
+html.light-mode button.bg-slate-800 *,
+html.light-mode button.bg-slate-900 *,
+html.light-mode button.bg-slate-950 *,
+html.light-mode button[class*="bg-slate-800"]:not(.bg-blue-600) *,
+html.light-mode button[class*="bg-slate-900"]:not(.bg-blue-600) *,
+html.light-mode button[class*="bg-slate-950"]:not(.bg-blue-600) * {
+  color: #1e293b !important;
+}
+
+html.light-mode button.bg-slate-800:hover,
+html.light-mode button.bg-slate-900:hover,
+html.light-mode button.bg-slate-950:hover,
+html.light-mode button[class*="bg-slate-800"]:hover:not(.bg-blue-600),
+html.light-mode button[class*="bg-slate-900"]:hover:not(.bg-blue-600),
+html.light-mode button[class*="bg-slate-950"]:hover:not(.bg-blue-600) {
+  background-color: #e2e8f0 !important;
+  border-color: #94a3b8 !important;
+  color: #0f172a !important;
+}
+
+html.light-mode button.bg-slate-800:hover *,
+html.light-mode button.bg-slate-900:hover *,
+html.light-mode button.bg-slate-950:hover *,
+html.light-mode button[class*="bg-slate-800"]:hover:not(.bg-blue-600) *,
+html.light-mode button[class*="bg-slate-900"]:hover:not(.bg-blue-600) *,
+html.light-mode button[class*="bg-slate-950"]:hover:not(.bg-blue-600) * {
+  color: #0f172a !important;
+}
+
+/* Prevent hover:text-white from blinding text on light surfaces */
+html.light-mode button.hover\:text-white:hover:not(.bg-blue-600):not(.bg-blue-700):not(#header-login-button) {
+  color: #1d4ed8 !important;
+}
+html.light-mode a.hover\:text-white:hover:not(.bg-blue-600):not(.bg-blue-700) {
+  color: #1d4ed8 !important;
+}
+html.light-mode div.hover\:text-white:hover {
+  color: #1d4ed8 !important;
+}
+
+/* -------------------------------------------------------------------------
+   4. CONTAINERS, CARDS, BORDERS & SHADOWS
+   ------------------------------------------------------------------------- */
+html.light-mode .bg-slate-900,
+html.light-mode .bg-slate-900\/70,
+html.light-mode .bg-slate-900\/80,
+html.light-mode .bg-slate-900\/90,
+html.light-mode .bg-slate-900\/95 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+html.light-mode .bg-slate-950,
+html.light-mode .bg-slate-950\/50,
+html.light-mode .bg-slate-950\/60,
+html.light-mode .bg-slate-950\/70,
+html.light-mode .bg-slate-950\/80,
+html.light-mode .bg-slate-950\/90,
+html.light-mode .bg-slate-950\/95 {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+html.light-mode .border-slate-800,
+html.light-mode .border-slate-700,
+html.light-mode .border-slate-800\/40,
+html.light-mode .border-slate-800\/50,
+html.light-mode .border-slate-800\/60,
+html.light-mode .border-slate-800\/80,
+html.light-mode .border-slate-700\/40,
+html.light-mode .border-slate-700\/50,
+html.light-mode .border-slate-700\/60,
+html.light-mode .border-slate-700\/70,
+html.light-mode .border-slate-700\/80,
+html.light-mode .border-blue-900\/30,
+html.light-mode .border-blue-900\/40,
+html.light-mode .border-blue-900\/50,
+html.light-mode .border-blue-900\/60,
+html.light-mode .border-blue-800\/40,
+html.light-mode .border-blue-800\/50,
+html.light-mode .border-blue-800\/60,
+html.light-mode .border-blue-800\/80 {
+  border-color: #e2e8f0 !important;
+}
+
+/* -------------------------------------------------------------------------
+   5. TINTED BADGES & CHIPS (DEEP ACCENTS IN LIGHT MODE)
+   ------------------------------------------------------------------------- */
+html.light-mode .bg-blue-950,
+html.light-mode .bg-blue-950\/50,
+html.light-mode .bg-blue-950\/60,
+html.light-mode .bg-blue-950\/80,
+html.light-mode .bg-blue-950\/90 {
+  background-color: #eff6ff !important;
+  border-color: #bfdbfe !important;
+  color: #1d4ed8 !important;
+}
+html.light-mode .bg-blue-950 *,
+html.light-mode .bg-blue-950\/50 *,
+html.light-mode .bg-blue-950\/80 * {
+  color: #1d4ed8 !important;
+}
+
+html.light-mode .bg-emerald-950,
+html.light-mode .bg-emerald-950\/60,
+html.light-mode .bg-emerald-950\/80 {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #047857 !important;
+}
+html.light-mode .bg-emerald-950 *,
+html.light-mode .bg-emerald-950\/80 * {
+  color: #047857 !important;
+}
+
+html.light-mode .bg-amber-950,
+html.light-mode .bg-amber-950\/60,
+html.light-mode .bg-amber-950\/80 {
+  background-color: #fffbeb !important;
+  border-color: #fde68a !important;
+  color: #b45309 !important;
+}
+html.light-mode .bg-amber-950 * {
+  color: #b45309 !important;
+}
+
+html.light-mode .bg-rose-950,
+html.light-mode .bg-rose-950\/60,
+html.light-mode .bg-rose-950\/80,
+html.light-mode .bg-rose-500\/10 {
+  background-color: #fff1f2 !important;
+  border-color: #fecdd3 !important;
+  color: #be123c !important;
+}
+html.light-mode .bg-rose-950 *,
+html.light-mode .bg-rose-500\/10 * {
+  color: #be123c !important;
+}
+
+/* -------------------------------------------------------------------------
+   6. HEADER IN LIGHT MODE
+   ------------------------------------------------------------------------- */
 html.light-mode header#main-header {
   background-color: #ffffff !important;
   color: #0f172a !important;
   border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+html.light-mode header#main-header .bg-slate-950 {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
 }
 
 html.light-mode header#main-header .bg-slate-900 {
-  background-color: #f1f5f9 !important;
+  background-color: #ffffff !important;
   border-color: #e2e8f0 !important;
-  color: #334155 !important;
 }
 
-html.light-mode header#main-header .text-slate-300,
-html.light-mode header#main-header .text-slate-400 {
-  color: #475569 !important;
-}
-
-html.light-mode header#main-header .text-white {
+html.light-mode header#main-header span.text-white,
+html.light-mode header#main-header p.text-white,
+html.light-mode header#main-header h1.text-white {
   color: #0f172a !important;
 }
 
-html.light-mode header#main-header .text-blue-200 {
-  color: #1e3a8a !important;
-}
-
-html.light-mode header#main-header .border-slate-900,
-html.light-mode header#main-header .border-blue-900\/60,
-html.light-mode header#main-header .border-blue-950\/80 {
-  border-color: #e2e8f0 !important;
-}
-
-html.light-mode header#main-header input[type="search"] {
+/* Search input in header */
+html.light-mode header#main-header input[type="search"],
+html.light-mode header#main-header input[type="text"] {
   background-color: #f1f5f9 !important;
   color: #0f172a !important;
   border-color: #cbd5e1 !important;
 }
 
-html.light-mode header#main-header input[type="search"]::placeholder {
+html.light-mode header#main-header input[type="search"]::placeholder,
+html.light-mode header#main-header input[type="text"]::placeholder {
   color: #64748b !important;
 }
 
-html.light-mode header#main-header .bg-slate-950 {
-  background-color: #f8fafc !important;
+/* Category pills in header */
+html.light-mode header#main-header .flex.flex-wrap button {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
 }
 
-html.light-mode article.group {
+html.light-mode header#main-header .flex.flex-wrap button:hover {
+  background-color: #eff6ff !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
+}
+
+html.light-mode header#main-header .flex.flex-wrap button.bg-blue-600,
+html.light-mode header#main-header .flex.flex-wrap button[class*="bg-blue-600"] {
+  background-color: #2563eb !important;
+  border-color: #2563eb !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+html.light-mode header#main-header .flex.flex-wrap button.bg-blue-600 *,
+html.light-mode header#main-header .flex.flex-wrap button[class*="bg-blue-600"] * {
+  color: #ffffff !important;
+}
+
+/* Theme toggle button in header */
+html.light-mode #theme-toggle-btn {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #1e293b !important;
+}
+
+html.light-mode #theme-toggle-btn:hover {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* Acervo & Sources buttons in header */
+html.light-mode header#main-header button.bg-blue-950\/60 {
+  background-color: #eff6ff !important;
+  border-color: #bfdbfe !important;
+  color: #1d4ed8 !important;
+}
+
+html.light-mode header#main-header button.bg-blue-950\/60:hover {
+  background-color: #dbeafe !important;
+  color: #1e40af !important;
+}
+
+/* -------------------------------------------------------------------------
+   7. NEWS CARDS & ARTICLES
+   ------------------------------------------------------------------------- */
+html.light-mode article.group,
+html.light-mode .news-card {
   background-color: #ffffff !important;
   border-color: #e2e8f0 !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
 }
 
-html.light-mode article.group:hover {
+html.light-mode article.group:hover,
+html.light-mode .news-card:hover {
   background-color: #ffffff !important;
   border-color: #93c5fd !important;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08) !important;
+  box-shadow: 0 6px 16px -2px rgba(37, 99, 235, 0.1) !important;
 }
 
 html.light-mode article.group h3,
-html.light-mode article.group h4 {
+html.light-mode article.group h4,
+html.light-mode .news-card h3 {
   color: #0f172a !important;
 }
 
-html.light-mode article.group h3:hover {
+html.light-mode article.group:hover h3,
+html.light-mode article.group:hover h4,
+html.light-mode .news-card:hover h3 {
   color: #1d4ed8 !important;
 }
 
-html.light-mode article.group p {
-  color: #475569 !important;
+html.light-mode article.group p,
+html.light-mode .news-card p {
+  color: #334155 !important;
 }
 
-html.light-mode .bg-slate-900\/70,
-html.light-mode .bg-slate-900\/80,
-html.light-mode .bg-slate-900\/90,
-html.light-mode .bg-slate-900 {
-  background-color: #ffffff !important;
-  color: #0f172a !important;
+html.light-mode article.group .border-t {
   border-color: #e2e8f0 !important;
 }
 
-html.light-mode .bg-slate-950 {
-  background-color: #f1f5f9 !important;
+/* -------------------------------------------------------------------------
+   8. NEWS CAROUSEL IN LIGHT MODE
+   ------------------------------------------------------------------------- */
+html.light-mode #news-carousel {
+  border-color: #e2e8f0 !important;
 }
 
-html.light-mode .text-slate-100,
-html.light-mode .text-slate-200 {
+html.light-mode #news-carousel h2 {
+  color: #ffffff !important; /* Over dark image overlay */
+}
+
+html.light-mode #news-carousel h2:hover {
+  color: #93c5fd !important;
+}
+
+html.light-mode #news-carousel p.text-slate-300 {
+  color: #f1f5f9 !important; /* Over dark image overlay */
+}
+
+html.light-mode #news-carousel button[class*="rounded-full"] {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12) !important;
+}
+
+html.light-mode #news-carousel button[class*="rounded-full"]:hover {
+  background-color: #eff6ff !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
+}
+
+html.light-mode #news-carousel button[class*="rounded-full"] * {
+  color: #0f172a !important;
+}
+
+html.light-mode #news-carousel button[class*="rounded-full"]:hover * {
+  color: #1d4ed8 !important;
+}
+
+/* Carousel bottom tabs */
+html.light-mode #news-carousel .grid.border-t {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+html.light-mode #news-carousel .grid.border-t button {
+  border-color: #e2e8f0 !important;
+  background-color: #ffffff !important;
+  color: #334155 !important;
+}
+
+html.light-mode #news-carousel .grid.border-t button:hover {
+  background-color: #eff6ff !important;
+  color: #1d4ed8 !important;
+}
+
+html.light-mode #news-carousel .grid.border-t button.bg-blue-950\/80 {
+  background-color: #dbeafe !important;
+  color: #1e40af !important;
+  border-color: #bfdbfe !important;
+}
+
+html.light-mode #news-carousel .grid.border-t button.bg-blue-950\/80 * {
+  color: #1e40af !important;
+}
+
+html.light-mode #news-carousel .grid.border-t button.bg-blue-950\/80 span.text-blue-400 {
+  color: #1d4ed8 !important;
+  font-weight: 800 !important;
+}
+
+/* -------------------------------------------------------------------------
+   9. WEATHER BANNER IN LIGHT MODE
+   ------------------------------------------------------------------------- */
+html.light-mode #weather-banner {
+  background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%) !important;
+  border-color: #bae6fd !important;
+  color: #0f172a !important;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.08) !important;
+}
+
+html.light-mode #weather-banner .border-b {
+  border-color: #e0f2fe !important;
+}
+
+html.light-mode #weather-banner .text-blue-300,
+html.light-mode #weather-banner .text-blue-400 {
+  color: #0369a1 !important;
+}
+
+html.light-mode #weather-banner span.text-white {
+  color: #0f172a !important;
+}
+
+html.light-mode #weather-banner .grid.grid-cols-3 {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+html.light-mode #weather-banner .grid.grid-cols-3 span.text-white {
+  color: #0f172a !important;
+  font-weight: 700 !important;
+}
+
+html.light-mode #weather-banner .grid.grid-cols-3 span.text-slate-400 {
+  color: #64748b !important;
+}
+
+html.light-mode #weather-banner .border-slate-800 {
+  border-color: #cbd5e1 !important;
+}
+
+html.light-mode #weather-banner button {
+  background-color: #eff6ff !important;
+  border-color: #bae6fd !important;
+  color: #0369a1 !important;
+}
+
+html.light-mode #weather-banner button:hover {
+  background-color: #e0f2fe !important;
+  color: #0284c7 !important;
+}
+
+/* -------------------------------------------------------------------------
+   10. RIGHT SIDEBAR IN LIGHT MODE
+   ------------------------------------------------------------------------- */
+html.light-mode #right-sidebar button.text-slate-300 {
+  color: #334155 !important;
+}
+
+html.light-mode #right-sidebar button.text-slate-300:hover {
+  background-color: #eff6ff !important;
+  color: #1d4ed8 !important;
+}
+
+html.light-mode #right-sidebar button.bg-blue-600 {
+  background-color: #2563eb !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+html.light-mode #right-sidebar button.bg-blue-600 * {
+  color: #ffffff !important;
+}
+
+/* -------------------------------------------------------------------------
+   11. WORDPRESS PAGINATION IN LIGHT MODE
+   ------------------------------------------------------------------------- */
+html.light-mode #wordpress-pagination {
+  border-color: #e2e8f0 !important;
+}
+
+html.light-mode #wordpress-pagination button {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
   color: #1e293b !important;
 }
 
-html.light-mode .text-slate-300,
-html.light-mode .text-slate-400 {
-  color: #475569 !important;
+html.light-mode #wordpress-pagination button:hover {
+  background-color: #eff6ff !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
 }
 
-html.light-mode .border-blue-900\/30,
-html.light-mode .border-blue-900\/40,
-html.light-mode .border-slate-800 {
+html.light-mode #wordpress-pagination button.bg-blue-600,
+html.light-mode #wordpress-pagination button[aria-current="page"] {
+  background-color: #2563eb !important;
+  border-color: #2563eb !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+html.light-mode #wordpress-pagination button.bg-blue-600 *,
+html.light-mode #wordpress-pagination button[aria-current="page"] * {
+  color: #ffffff !important;
+}
+
+/* -------------------------------------------------------------------------
+   12. SOURCES MODAL IN LIGHT MODE
+   ------------------------------------------------------------------------- */
+html.light-mode #sources-modal .bg-slate-900,
+html.light-mode #sources-modal .bg-slate-950 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+html.light-mode #sources-modal .bg-slate-950\/70 {
+  background-color: #f8fafc !important;
   border-color: #e2e8f0 !important;
 }
 
+html.light-mode #sources-modal .bg-slate-900\/90 {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+html.light-mode #sources-modal p.select-all {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #047857 !important;
+  font-weight: 600 !important;
+}
+
+html.light-mode #sources-modal span.text-blue-200 {
+  color: #1d4ed8 !important;
+  font-weight: 600 !important;
+}
+
+html.light-mode #sources-modal button[class*="bg-slate-800"] {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+html.light-mode #sources-modal button[class*="bg-slate-800"]:hover {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* -------------------------------------------------------------------------
+   13. MODALS, INPUTS & DIALOGS
+   ------------------------------------------------------------------------- */
+html.light-mode [role="dialog"],
+html.light-mode .modal-content,
+html.light-mode div.fixed.inset-0 > div > div.bg-slate-900 {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+}
+
+html.light-mode input[type="text"],
+html.light-mode input[type="email"],
+html.light-mode input[type="password"],
+html.light-mode textarea,
+html.light-mode select {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light-mode input::placeholder,
+html.light-mode textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* -------------------------------------------------------------------------
+   14. SINGLE POST PAGE & PROSE CONTENT
+   ------------------------------------------------------------------------- */
+html.light-mode #post-detail-page {
+  background-color: transparent !important;
+  color: #0f172a !important;
+}
+
+html.light-mode #post-detail-page h1 {
+  color: #0f172a !important;
+}
+
+html.light-mode #post-detail-page p.lead,
+html.light-mode #post-detail-page .text-xl {
+  color: #334155 !important;
+}
+
+html.light-mode #post-detail-page .prose,
 html.light-mode .prose.prose-invert {
   color: #1e293b !important;
 }
 
+html.light-mode #post-detail-page .prose p,
 html.light-mode .prose.prose-invert p {
   color: #334155 !important;
+  line-height: 1.75 !important;
 }
 
+html.light-mode #post-detail-page .prose h2,
+html.light-mode #post-detail-page .prose h3,
+html.light-mode #post-detail-page .prose h4,
 html.light-mode .prose.prose-invert h2,
-html.light-mode .prose.prose-invert h3 {
+html.light-mode .prose.prose-invert h3,
+html.light-mode .prose.prose-invert h4 {
   color: #0f172a !important;
 }
 
+html.light-mode #post-detail-page .prose a,
+html.light-mode .prose.prose-invert a {
+  color: #1d4ed8 !important;
+  text-decoration: underline !important;
+}
+
+html.light-mode #post-detail-page .prose strong,
+html.light-mode .prose.prose-invert strong {
+  color: #0f172a !important;
+}
+
+html.light-mode #post-detail-page .prose blockquote,
+html.light-mode .prose.prose-invert blockquote {
+  border-left-color: #3b82f6 !important;
+  color: #475569 !important;
+  background-color: #f8fafc !important;
+}
+
+/* Social Share Buttons */
+html.light-mode #post-detail-page button[title*="WhatsApp"] {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+  color: #047857 !important;
+}
+html.light-mode #post-detail-page button[title*="WhatsApp"]:hover {
+  background-color: #d1fae5 !important;
+}
+
+html.light-mode #post-detail-page button[title*="Telegram"] {
+  background-color: #f0f9ff !important;
+  border-color: #bae6fd !important;
+  color: #0369a1 !important;
+}
+html.light-mode #post-detail-page button[title*="Telegram"]:hover {
+  background-color: #e0f2fe !important;
+}
+
+html.light-mode #post-detail-page button[title*="Twitter"],
+html.light-mode #post-detail-page button[title*="Copiar"],
+html.light-mode #post-detail-page button[title*="Imprimir"] {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #1e293b !important;
+}
+html.light-mode #post-detail-page button[title*="Twitter"]:hover,
+html.light-mode #post-detail-page button[title*="Copiar"]:hover,
+html.light-mode #post-detail-page button[title*="Imprimir"]:hover {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+/* -------------------------------------------------------------------------
+   15. PRE-FOOTER GRID & FOOTER IN LIGHT MODE
+   ------------------------------------------------------------------------- */
+html.light-mode #pre-footer-grid {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+html.light-mode #pre-footer-grid h3 {
+  color: #0f172a !important;
+}
+
+html.light-mode #pre-footer-grid .border-b {
+  border-color: #e2e8f0 !important;
+}
+
+html.light-mode footer#main-footer {
+  background-color: #f1f5f9 !important;
+  color: #334155 !important;
+  border-color: #e2e8f0 !important;
+}
+
+html.light-mode footer#main-footer .border-b,
+html.light-mode footer#main-footer .border-t,
+html.light-mode footer#main-footer .border-slate-900,
+html.light-mode footer#main-footer .border-blue-900\/40,
+html.light-mode footer#main-footer .border-blue-900\/60 {
+  border-color: #e2e8f0 !important;
+}
+
+html.light-mode footer#main-footer h4 {
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+}
+
+html.light-mode footer#main-footer span.text-white {
+  color: #0f172a !important;
+}
+
+html.light-mode footer#main-footer p {
+  color: #475569 !important;
+}
+
+html.light-mode footer#main-footer button,
+html.light-mode footer#main-footer a {
+  color: #475569 !important;
+}
+
+html.light-mode footer#main-footer button:hover,
+html.light-mode footer#main-footer a:hover {
+  color: #1d4ed8 !important;
+}
+
+html.light-mode footer#main-footer .text-slate-500 {
+  color: #64748b !important;
+}

@@ -3,10 +3,17 @@ import {
   trafficRouter,
   TrafficRouterState,
   TrafficSource,
-  NINE_GB_IN_BYTES,
   TEN_GB_IN_BYTES,
+  NINE_POINT_FIVE_GB_IN_BYTES,
+  ONE_GB_IN_BYTES,
+  NINE_FIFTY_MB_IN_BYTES,
 } from "../services/firebaseTrafficRouter";
-import { firebaseAuthService, AdminUserState, getAdminEmailsList } from "../services/firebaseAuthService";
+import {
+  firebaseAuthService,
+  AdminUserState,
+  getAdminEmailsList,
+  isEmailAdmin,
+} from "../services/firebaseAuthService";
 import { getSiteDomain } from "../utils/domain";
 import staticNewsData from "../data/initialNews.json";
 import {
@@ -21,9 +28,12 @@ import {
   Server,
   HardDrive,
   Info,
-  ExternalLink,
   X,
   Lock,
+  Layers,
+  FileText,
+  KeyRound,
+  Mail,
 } from "lucide-react";
 
 interface AdminMetricsModalProps {
@@ -38,7 +48,13 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
   const [syncProgress, setSyncProgress] = useState<number>(0);
   const [syncMessage, setSyncMessage] = useState<string>("");
   const [syncResult, setSyncResult] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"traffic" | "sync" | "auth" | "guide">("traffic");
+  const [activeTab, setActiveTab] = useState<"traffic" | "storage" | "sync" | "auth">("traffic");
+
+  // Direct login form for unauthorized gate
+  const [loginEmail, setLoginEmail] = useState(getAdminEmailsList()[0] || "acrmrochamiranda@gmail.com");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginLoading, setLoginLoading] = useState(false);
 
   useEffect(() => {
     const unsubRouter = trafficRouter.subscribe(setRouterState);
@@ -68,7 +84,7 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
       setIsSyncing(true);
       setSyncResult(null);
       setSyncProgress(10);
-      setSyncMessage("Iniciando espelhamento do acervo...");
+      setSyncMessage("Iniciando espelhamento e indexação de notícias...");
 
       const res = await trafficRouter.mirrorNewsToFirebase(
         staticNewsData as any,
@@ -80,10 +96,10 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
 
       if (res.success) {
         setSyncResult(
-          `Sucesso: ${res.syncedCount} notícias espelhadas${
-            res.mirrored ? " em ambas as instâncias Firebase!" : " na instância ativa."
-          }`
+          `Sucesso: ${res.syncedCount} notícias espelhadas com destino "${res.targetUsed}"! Índice atualizado com integridade garantida.`
         );
+      } else if (res.warning) {
+        setSyncResult(res.warning);
       }
     } catch (err: any) {
       setSyncResult(`Erro ao sincronizar: ${err.message || err}`);
@@ -92,17 +108,23 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
     }
   };
 
-  const [loginError, setLoginError] = useState<string | null>(null);
-
-  const handleGoogleLogin = async () => {
+  const handleDirectLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoginError(null);
+    setLoginLoading(true);
     try {
-      const res = await firebaseAuthService.signInWithGoogle();
+      const res = await firebaseAuthService.signInWithAdminEmail(
+        loginEmail,
+        loginPassword || undefined,
+        "Administrador Autorizado"
+      );
       if (!res.success) {
-        setLoginError(res.error || "Erro ao conectar com Google.");
+        setLoginError(res.error || "Falha na autenticação administrativa.");
       }
     } catch (err: any) {
       setLoginError(err.message || "Erro inesperado.");
+    } finally {
+      setLoginLoading(false);
     }
   };
 
@@ -110,133 +132,128 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
     await firebaseAuthService.signOut();
   };
 
-  const primaryPct = getPercent(routerState.primaryStats.bytesUsed, TEN_GB_IN_BYTES);
-  const mirrorPct = getPercent(routerState.mirrorStats.bytesUsed, TEN_GB_IN_BYTES);
+  const primaryTrafficPct = getPercent(routerState.primaryTraffic.bytesUsed, TEN_GB_IN_BYTES);
+  const mirrorTrafficPct = getPercent(routerState.mirrorTraffic.bytesUsed, TEN_GB_IN_BYTES);
+  const totalTrafficUsed = routerState.primaryTraffic.bytesUsed + routerState.mirrorTraffic.bytesUsed;
+  const combinedTrafficLimit = 2 * TEN_GB_IN_BYTES; // ~20GB total
+  const combinedTrafficPct = getPercent(totalTrafficUsed, combinedTrafficLimit);
 
-  // Gate 1: Not Authenticated -> Show login modal
-  if (!authState.isAuthenticated) {
+  const primaryStoragePct = getPercent(routerState.primaryStorage.bytesUsed, ONE_GB_IN_BYTES);
+  const mirrorStoragePct = getPercent(routerState.mirrorStorage.bytesUsed, ONE_GB_IN_BYTES);
+  const totalStorageUsed = routerState.primaryStorage.bytesUsed + routerState.mirrorStorage.bytesUsed;
+  const combinedStorageLimit = 2 * ONE_GB_IN_BYTES; // ~2GB total
+  const combinedStoragePct = getPercent(totalStorageUsed, combinedStorageLimit);
+
+  // GATE 1: Se o usuário NÃO for administrador (ou não autenticado), exibe a tela de login restrito aos administradores
+  if (!authState.isAuthenticated || !authState.isAdmin) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in">
-        <div className="relative w-full max-w-md bg-slate-900 border border-blue-900/60 rounded-2xl shadow-2xl p-6 text-slate-100 text-center">
+      <div
+        id="admin-metrics-gate"
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in"
+      >
+        <div className="relative w-full max-w-md bg-slate-900 border border-blue-900/60 rounded-2xl shadow-2xl p-6 text-slate-100 modal-content">
           <button
             onClick={onClose}
             className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            title="Fechar"
           >
             <X className="w-5 h-5" />
           </button>
 
-          <div className="w-14 h-14 mx-auto rounded-2xl bg-blue-950/70 border border-blue-500/50 flex items-center justify-center text-blue-400 mb-4 shadow-lg">
-            <Lock className="w-7 h-7" />
+          <div className="w-12 h-12 mx-auto rounded-2xl bg-blue-950/70 border border-blue-500/50 flex items-center justify-center text-blue-400 mb-3 shadow-lg">
+            <Lock className="w-6 h-6" />
           </div>
 
-          <h3 className="font-serif text-lg font-bold text-white mb-1.5">
-            Acesso Restrito: Painel de Metas & Tráfego
+          <h3 className="font-serif text-lg font-bold text-white text-center mb-1">
+            Acesso Restrito a Administradores
           </h3>
-          <p className="text-xs text-slate-300 leading-relaxed mb-5">
-            O Painel de Tráfego, Firebase RTDB (10GB) e Métricas é de acesso restrito aos administradores autorizados. Conecte-se com sua conta Google autorizada.
+          <p className="text-xs text-slate-300 leading-relaxed text-center mb-4">
+            A página de Meta & Tráfego é restrita exclusivamente aos administradores configurados na variável{" "}
+            <code className="text-blue-400 font-mono font-semibold">ADMINISTRADORES</code>.
           </p>
 
           {loginError && (
-            <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200 text-left">
-              <p className="font-semibold text-amber-300 mb-0.5">Aviso de Acesso:</p>
+            <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-200">
+              <p className="font-semibold text-rose-300 mb-0.5">Restrição de Acesso:</p>
               <p>{loginError}</p>
             </div>
           )}
 
-          <div className="space-y-3">
-            <button
-              onClick={handleGoogleLogin}
-              className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98]"
-            >
-              <Shield className="w-4 h-4" />
-              <span>Entrar com Conta Google</span>
-            </button>
+          <form onSubmit={handleDirectLogin} className="space-y-3">
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1 flex items-center gap-1">
+                <Mail className="w-3.5 h-3.5 text-blue-400" />
+                E-mail do Administrador
+              </label>
+              <input
+                type="email"
+                required
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-800 focus:border-blue-500 text-white outline-none"
+                placeholder="ex: acrmrochamiranda@gmail.com"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-medium text-slate-400 mb-1 flex items-center gap-1">
+                <Lock className="w-3.5 h-3.5 text-blue-400" />
+                Senha (Opcional)
+              </label>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-800 focus:border-blue-500 text-white outline-none"
+                placeholder="Senha de acesso"
+              />
+            </div>
 
             <button
-              onClick={() => {
-                firebaseAuthService.signInAsAdmin();
-              }}
-              className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium transition-all"
+              type="submit"
+              disabled={loginLoading}
+              className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] disabled:opacity-60 cursor-pointer"
             >
-              Acesso com Administrador Padrão
+              <KeyRound className="w-4 h-4" />
+              <span>{loginLoading ? "Verificando permissões..." : "Acessar Painel de Tráfego"}</span>
             </button>
+          </form>
+
+          <div className="mt-4 pt-3 border-t border-slate-800 text-[10px] text-slate-500 text-center">
+            E-mails autorizados no sistema:{" "}
+            <span className="text-slate-300 font-mono">
+              {getAdminEmailsList().join(", ") || "Configurados em ADMINISTRADORES"}
+            </span>
           </div>
         </div>
       </div>
     );
   }
 
-  // Gate 2: Authenticated, but NOT an administrator -> Restrict access to administradores variable
-  if (authState.isAuthenticated && !authState.isAdmin) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in">
-        <div className="relative w-full max-w-md bg-slate-900 border border-red-900/60 rounded-2xl shadow-2xl p-6 text-slate-100 text-center">
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-
-          <div className="w-14 h-14 mx-auto rounded-2xl bg-red-950/70 border border-red-500/50 flex items-center justify-center text-red-400 mb-4 shadow-lg">
-            <AlertTriangle className="w-7 h-7" />
-          </div>
-
-          <h3 className="font-serif text-lg font-bold text-white mb-1.5">
-            Acesso Não Autorizado
-          </h3>
-          <p className="text-xs text-slate-300 leading-relaxed mb-3">
-            A conta conectada (<strong className="text-white">{authState.email}</strong>) não possui privilégios de administrador.
-          </p>
-
-          <div className="p-3 bg-red-950/40 border border-red-800/40 rounded-xl text-left text-xs text-slate-300 mb-5">
-            <p className="text-red-300 font-semibold mb-1">Restrição Exclusiva a Administradores:</p>
-            <p className="text-[11px] text-slate-400">
-              O acesso a esta página de meta e tráfego é restrito exclusivamente aos e-mails configurados na variável de ambiente <code className="text-amber-300 font-mono font-semibold">ADMINISTRADORES</code>.
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            <button
-              onClick={() => firebaseAuthService.signOut()}
-              className="w-full py-2.5 px-4 rounded-xl bg-red-900/80 hover:bg-red-800 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>Desconectar / Trocar de Conta</span>
-            </button>
-
-            <button
-              onClick={onClose}
-              className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium transition-all"
-            >
-              Fechar
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  // USUÁRIO ADMINISTRADOR AUTENTICADO: Exibe o Painel Completo de Tráfego e Metas
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-      <div className="relative w-full max-w-4xl bg-slate-900 border border-blue-900/60 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+    <div
+      id="admin-metrics-modal"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in"
+    >
+      <div className="relative w-full max-w-4xl bg-slate-900 border border-blue-900/60 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] modal-content">
         {/* Modal Header */}
-        <div className="p-6 border-b border-blue-900/40 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 flex items-center justify-between">
+        <div className="p-5 border-b border-blue-900/40 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
               <Activity className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-xl font-bold text-white tracking-wide">
-                  Painel de Tráfego, Firebase RTDB & Métricas
+                <h2 className="text-lg font-bold text-white tracking-wide">
+                  Painel de Metas, Tráfego & Armazenamento
                 </h2>
                 <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-800 text-emerald-300">
-                  Alta Disponibilidade
+                  Rotação 19GB / 1900MB
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Monitoramento do limite de 10GB, rotação com alerta em 9GB e estatísticas com Google Auth
+                Capacidade combinada dos 2 Projetos Firebase (Spark) com integridade absoluta de dados
               </p>
             </div>
           </div>
@@ -250,87 +267,87 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-800 bg-slate-950/50 px-6 gap-2 pt-2">
+        <div className="flex border-b border-slate-800 bg-slate-950/50 px-6 gap-2 pt-2 text-xs">
           <button
             onClick={() => setActiveTab("traffic")}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-t-lg transition-colors cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2.5 font-semibold rounded-t-lg transition-colors cursor-pointer ${
               activeTab === "traffic"
                 ? "bg-slate-900 text-blue-400 border-t-2 border-blue-500"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
             <ArrowRightLeft className="w-4 h-4" />
-            <span>Rotação de Tráfego (10GB)</span>
+            <span>Tráfego Mensal (19GB)</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("storage")}
+            className={`flex items-center gap-2 px-4 py-2.5 font-semibold rounded-t-lg transition-colors cursor-pointer ${
+              activeTab === "storage"
+                ? "bg-slate-900 text-blue-400 border-t-2 border-blue-500"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <HardDrive className="w-4 h-4" />
+            <span>Armazenamento (1900MB)</span>
           </button>
 
           <button
             onClick={() => setActiveTab("sync")}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-t-lg transition-colors cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2.5 font-semibold rounded-t-lg transition-colors cursor-pointer ${
               activeTab === "sync"
                 ? "bg-slate-900 text-blue-400 border-t-2 border-blue-500"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
             <Database className="w-4 h-4" />
-            <span>Acervo Híbrido & Espelhamento</span>
+            <span>Índice & Espelhamento</span>
           </button>
 
           <button
             onClick={() => setActiveTab("auth")}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-t-lg transition-colors cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2.5 font-semibold rounded-t-lg transition-colors cursor-pointer ${
               activeTab === "auth"
                 ? "bg-slate-900 text-blue-400 border-t-2 border-blue-500"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
             <Shield className="w-4 h-4" />
-            <span>Métricas & Google Auth</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("guide")}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-t-lg transition-colors cursor-pointer ${
-              activeTab === "guide"
-                ? "bg-slate-900 text-amber-400 border-t-2 border-amber-500"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Info className="w-4 h-4" />
-            <span>Configuração no Console</span>
+            <span>Administradores ({getAdminEmailsList().length})</span>
           </button>
         </div>
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1 text-sm text-slate-300">
-          {/* TAB 1: ROTAÇÃO DE TRÁFEGO */}
+          {/* TAB 1: ROTAÇÃO DE TRÁFEGO (19GB) */}
           {activeTab === "traffic" && (
             <div className="space-y-6">
               {/* Active Source Banner */}
               <div className="p-4 rounded-xl border border-blue-900/60 bg-blue-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <span className="text-xs font-mono uppercase text-blue-400 block mb-1">
-                    Fonte Ativa de Leitura de Notícias
+                    Fonte Ativa de Leitura de Notícias (Ciclo: {routerState.monthCycle})
                   </span>
                   <div className="flex items-center gap-2">
                     <span
                       className={`w-3 h-3 rounded-full ${
-                        routerState.activeSource === "primary"
+                        routerState.activeReadSource === "primary"
                           ? "bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)]"
-                          : routerState.activeSource === "mirror"
+                          : routerState.activeReadSource === "mirror"
                           ? "bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.8)]"
                           : "bg-blue-400 shadow-[0_0_12px_rgba(96,165,250,0.8)]"
                       }`}
                     />
-                    <h3 className="text-lg font-bold text-white capitalize">
-                      {routerState.activeSource === "primary" && "Projeto 1 (Instância Principal)"}
-                      {routerState.activeSource === "mirror" && "Projeto 2 (Instância Espelho / Rotação)"}
-                      {routerState.activeSource === "static" && "Fallback Estático In-Code (Alta Disponibilidade)"}
+                    <h3 className="text-base font-bold text-white capitalize">
+                      {routerState.activeReadSource === "primary" && "Banco 1 • legal-norm2 (Instância Principal)"}
+                      {routerState.activeReadSource === "mirror" && "Banco 2 • legal-norm3 (Instância Espelho)"}
+                      {routerState.activeReadSource === "static" && "Fallback Estático In-Code (Alta Disponibilidade)"}
                     </h3>
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
                     {routerState.mode === "automatic"
-                      ? "Modo Automático: Redireciona leituras para o Projeto 2 ao atingir 9GB de tráfego no Projeto 1."
-                      : "Modo Manual (Sobrescrito para teste de contingência)."}
+                      ? "Rotação Automática: Ao atingir 9.5GB no Banco 1, as leituras alternam para o Banco 2 (10GB)."
+                      : "Modo Manual Ativado."}
                   </p>
                 </div>
 
@@ -348,184 +365,299 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                   <button
                     onClick={() =>
                       trafficRouter.setManualSource(
-                        routerState.activeSource === "primary" ? "mirror" : "primary"
+                        routerState.activeReadSource === "primary" ? "mirror" : "primary"
                       )
                     }
                     className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-950/80 border border-blue-700/60 text-blue-300 hover:bg-blue-900 transition-colors flex items-center gap-1.5 cursor-pointer"
                   >
                     <ArrowRightLeft className="w-3.5 h-3.5" />
-                    <span>Alternar Instância</span>
+                    <span>Alternar Leitura</span>
                   </button>
                 </div>
               </div>
 
-              {/* Traffic Cards Grid */}
+              {/* Combined Progress */}
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span className="font-semibold text-white">Capacidade Total Combinada de Tráfego Mensal</span>
+                  <span className="font-mono text-blue-400 font-bold">
+                    {formatBytes(totalTrafficUsed)} / 20.00 GB (Teto de Rotação: 19.00 GB)
+                  </span>
+                </div>
+                <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-blue-500 h-full transition-all duration-500"
+                    style={{ width: `${Math.max(combinedTrafficPct, 2)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Individual Traffic Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Project 1 Stats */}
+                {/* Banco 1 Traffic */}
                 <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Server className="w-4 h-4 text-blue-400" />
-                      <h4 className="font-bold text-white text-sm">Projeto 1 • Principal</h4>
+                      <h4 className="font-bold text-white text-sm">Banco 1 • legal-norm2</h4>
                     </div>
-                    <span
-                      className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                        routerState.isPrimaryConfigured
-                          ? "bg-emerald-950 text-emerald-300 border border-emerald-800"
-                          : "bg-amber-950 text-amber-300 border border-amber-800"
-                      }`}
-                    >
-                      {routerState.isPrimaryConfigured ? "Configurado" : "Pendente no .env"}
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
+                      10GB Limite
                     </span>
                   </div>
 
                   <div>
                     <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-400">Consumo Estimado (Mês):</span>
+                      <span className="text-slate-400">Tráfego de Download:</span>
                       <span className="font-mono text-white font-semibold">
-                        {formatBytes(routerState.primaryStats.bytesUsed)} / 10.00 GB
+                        {formatBytes(routerState.primaryTraffic.bytesUsed)} / 10.00 GB
                       </span>
                     </div>
-                    <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                       <div
                         className={`h-full transition-all duration-500 ${
-                          primaryPct >= 90
-                            ? "bg-red-500"
-                            : primaryPct >= 70
-                            ? "bg-amber-500"
-                            : "bg-blue-500"
+                          primaryTrafficPct >= 95 ? "bg-red-500" : primaryTrafficPct >= 70 ? "bg-amber-500" : "bg-blue-500"
                         }`}
-                        style={{ width: `${Math.max(primaryPct, 2)}%` }}
+                        style={{ width: `${Math.max(primaryTrafficPct, 2)}%` }}
                       />
                     </div>
-                    <div className="flex justify-between text-[11px] text-slate-500 mt-1">
-                      <span>Alerta de Rotação: 9.00 GB</span>
-                      <span>{primaryPct.toFixed(1)}% do teto</span>
+                    <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                      <span>Rotação em: 9.50 GB</span>
+                      <span>{primaryTrafficPct.toFixed(1)}% utilizado</span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-900 text-xs">
                     <div>
-                      <span className="text-slate-500 block">Requisições:</span>
-                      <span className="font-mono text-slate-300">{routerState.primaryStats.requestCount}</span>
+                      <span className="text-slate-500 block text-[11px]">Leituras Realizadas:</span>
+                      <span className="font-mono text-slate-300">{routerState.primaryTraffic.requestCount}</span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block">Falhas / 429:</span>
-                      <span className="font-mono text-slate-300">{routerState.primaryStats.errorCount}</span>
+                      <span className="text-slate-500 block text-[11px]">Falhas / 429:</span>
+                      <span className="font-mono text-slate-300">{routerState.primaryTraffic.errorCount}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Project 2 Stats (Mirror) */}
+                {/* Banco 2 Traffic */}
                 <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Server className="w-4 h-4 text-purple-400" />
-                      <h4 className="font-bold text-white text-sm">Projeto 2 • Espelho</h4>
+                      <h4 className="font-bold text-white text-sm">Banco 2 • legal-norm3</h4>
                     </div>
-                    <span
-                      className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                        routerState.isMirrorConfigured
-                          ? "bg-emerald-950 text-emerald-300 border border-emerald-800"
-                          : "bg-slate-800 text-slate-400 border border-slate-700"
-                      }`}
-                    >
-                      {routerState.isMirrorConfigured ? "Espelho Ativo" : "Opcional no .env"}
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
+                      10GB Limite
                     </span>
                   </div>
 
                   <div>
                     <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-400">Consumo Estimado (Mês):</span>
+                      <span className="text-slate-400">Tráfego de Download:</span>
                       <span className="font-mono text-white font-semibold">
-                        {formatBytes(routerState.mirrorStats.bytesUsed)} / 10.00 GB
+                        {formatBytes(routerState.mirrorTraffic.bytesUsed)} / 10.00 GB
                       </span>
                     </div>
-                    <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                       <div
                         className={`h-full transition-all duration-500 ${
-                          mirrorPct >= 90
-                            ? "bg-red-500"
-                            : mirrorPct >= 70
-                            ? "bg-amber-500"
-                            : "bg-purple-500"
+                          mirrorTrafficPct >= 95 ? "bg-red-500" : mirrorTrafficPct >= 70 ? "bg-amber-500" : "bg-purple-500"
                         }`}
-                        style={{ width: `${Math.max(mirrorPct, 2)}%` }}
+                        style={{ width: `${Math.max(mirrorTrafficPct, 2)}%` }}
                       />
                     </div>
-                    <div className="flex justify-between text-[11px] text-slate-500 mt-1">
-                      <span>Alerta de Rotação: 9.00 GB</span>
-                      <span>{mirrorPct.toFixed(1)}% do teto</span>
+                    <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                      <span>Rotação em: 9.50 GB</span>
+                      <span>{mirrorTrafficPct.toFixed(1)}% utilizado</span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-900 text-xs">
                     <div>
-                      <span className="text-slate-500 block">Requisições:</span>
-                      <span className="font-mono text-slate-300">{routerState.mirrorStats.requestCount}</span>
+                      <span className="text-slate-500 block text-[11px]">Leituras Realizadas:</span>
+                      <span className="font-mono text-slate-300">{routerState.mirrorTraffic.requestCount}</span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block">Falhas / 429:</span>
-                      <span className="font-mono text-slate-300">{routerState.mirrorStats.errorCount}</span>
+                      <span className="text-slate-500 block text-[11px]">Falhas / 429:</span>
+                      <span className="font-mono text-slate-300">{routerState.mirrorTraffic.errorCount}</span>
                     </div>
                   </div>
                 </div>
-              </div>
-
-              {/* Informational Alert */}
-              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 text-xs space-y-2">
-                <div className="flex items-center gap-2 text-blue-400 font-semibold">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Princípio de Integridade Absoluta dos Dados</span>
-                </div>
-                <p className="text-slate-400 leading-relaxed">
-                  Nenhuma notícia é removida ou excluída durante a rotação de tráfego. Caso a banda de leitura do
-                  Projeto 1 se aproxime de 9GB, a fonte de consulta é instantaneamente alternada para o Projeto 2
-                  (ou para o fallback estático in-code). Todo o histórico de notícias mais antigas permanece intacto.
-                </p>
               </div>
             </div>
           )}
 
-          {/* TAB 2: ACERVO HÍBRIDO & ESPELHAMENTO */}
-          {activeTab === "sync" && (
+          {/* TAB 2: ARMAZENAMENTO & ROTAÇÃO DE ESPAÇO (1900MB) */}
+          {activeTab === "storage" && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
-                  <div className="flex items-center gap-2 text-emerald-400">
-                    <HardDrive className="w-4 h-4" />
-                    <span className="font-bold text-sm text-white">Acervo Estático In-Code</span>
+              {/* Storage Target Banner */}
+              <div className="p-4 rounded-xl border border-blue-900/60 bg-blue-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <span className="text-xs font-mono uppercase text-blue-400 block mb-1">
+                    Alvo Ativo de Novas Gravações (Teto 950MB por Banco)
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`w-3 h-3 rounded-full ${
+                        routerState.activeWriteTarget === "warning_both_full"
+                          ? "bg-red-500 animate-pulse"
+                          : routerState.activeWriteTarget === "primary"
+                          ? "bg-emerald-400"
+                          : "bg-purple-400"
+                      }`}
+                    />
+                    <h3 className="text-base font-bold text-white">
+                      {routerState.activeWriteTarget === "primary" && "Gravando em Banco 1 (legal-norm2)"}
+                      {routerState.activeWriteTarget === "mirror" && "Gravando em Banco 2 (legal-norm3 - Rotação Ativa)"}
+                      {routerState.activeWriteTarget === "warning_both_full" && "Capacidade Máxima Atingida em Ambos (1900MB)"}
+                    </h3>
                   </div>
-                  <p className="text-2xl font-bold font-serif text-white">
-                    {staticNewsData.length} <span className="text-xs text-slate-400 font-sans">notícias</span>
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    Conjunto gravado diretamente no código-fonte. Funciona 100% offline e garante que o portal nunca
-                    fique fora do ar, mesmo com banco indisponível.
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
-                  <div className="flex items-center gap-2 text-blue-400">
-                    <Database className="w-4 h-4" />
-                    <span className="font-bold text-sm text-white">Realtime Database (RTDB)</span>
-                  </div>
-                  <p className="text-2xl font-bold font-serif text-white">
-                    Espelhamento Ativo
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    Armazenamento dinâmico em nuvem. Permite publicação em tempo real sem precisar recompilar o portal.
+                  <p className="text-xs text-slate-400 mt-1">
+                    Quando o Banco 1 atinge 950MB, novas notícias são gravadas no Banco 2. Nenhuma notícia é sobrescrita ou excluída.
                   </p>
                 </div>
               </div>
 
-              {/* Sync Action Section */}
+              {/* Combined Storage Bar */}
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span className="font-semibold text-white">Capacidade Combinada de Espaço (2 Bancos Spark)</span>
+                  <span className="font-mono text-emerald-400 font-bold">
+                    {formatBytes(totalStorageUsed)} / 2.00 GB (Teto Seguro de Rotação: 1900 MB)
+                  </span>
+                </div>
+                <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-emerald-500 h-full transition-all duration-500"
+                    style={{ width: `${Math.max(combinedStoragePct, 2)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Individual Storage Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Banco 1 Storage */}
+                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <HardDrive className="w-4 h-4 text-blue-400" />
+                      <h4 className="font-bold text-white text-sm">Banco 1 • Armazenamento</h4>
+                    </div>
+                    <span
+                      className={`text-[10px] font-mono px-2 py-0.5 rounded ${
+                        routerState.primaryStorage.isNearLimit
+                          ? "bg-amber-950 text-amber-300 border border-amber-800"
+                          : "bg-emerald-950 text-emerald-300 border border-emerald-800"
+                      }`}
+                    >
+                      {routerState.primaryStorage.isNearLimit ? "Teto 950MB Atingido" : "Disponível"}
+                    </span>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-400">Espaço Ocupado:</span>
+                      <span className="font-mono text-white font-semibold">
+                        {formatBytes(routerState.primaryStorage.bytesUsed)} / 1024 MB
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-500 ${
+                          primaryStoragePct >= 92 ? "bg-amber-500" : "bg-emerald-500"
+                        }`}
+                        style={{ width: `${Math.max(primaryStoragePct, 2)}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                      <span>Rotação de gravação em 950 MB</span>
+                      <span>{primaryStoragePct.toFixed(1)}% do limite</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-900 text-xs">
+                    <span className="text-slate-500 block text-[11px]">Notícias Gravadas:</span>
+                    <span className="font-mono text-slate-300">{routerState.primaryStorage.articleCount} itens</span>
+                  </div>
+                </div>
+
+                {/* Banco 2 Storage */}
+                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <HardDrive className="w-4 h-4 text-purple-400" />
+                      <h4 className="font-bold text-white text-sm">Banco 2 • Armazenamento</h4>
+                    </div>
+                    <span
+                      className={`text-[10px] font-mono px-2 py-0.5 rounded ${
+                        routerState.mirrorStorage.isNearLimit
+                          ? "bg-amber-950 text-amber-300 border border-amber-800"
+                          : "bg-emerald-950 text-emerald-300 border border-emerald-800"
+                      }`}
+                    >
+                      {routerState.mirrorStorage.isNearLimit ? "Teto 950MB Atingido" : "Disponível"}
+                    </span>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-400">Espaço Ocupado:</span>
+                      <span className="font-mono text-white font-semibold">
+                        {formatBytes(routerState.mirrorStorage.bytesUsed)} / 1024 MB
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-500 ${
+                          mirrorStoragePct >= 92 ? "bg-amber-500" : "bg-purple-500"
+                        }`}
+                        style={{ width: `${Math.max(mirrorStoragePct, 2)}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                      <span>Rotação de gravação em 950 MB</span>
+                      <span>{mirrorStoragePct.toFixed(1)}% do limite</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-900 text-xs">
+                    <span className="text-slate-500 block text-[11px]">Notícias Gravadas:</span>
+                    <span className="font-mono text-slate-300">{routerState.mirrorStorage.articleCount} itens</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: ÍNDICE & ESPELHAMENTO */}
+          {activeTab === "sync" && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+                  <span className="text-xs text-slate-500 block">Acervo In-Code</span>
+                  <p className="text-2xl font-bold font-serif text-white">{staticNewsData.length}</p>
+                  <p className="text-[11px] text-slate-400">Notícias estáticas de contingência imediata.</p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+                  <span className="text-xs text-slate-500 block">Índice Catálogo</span>
+                  <p className="text-2xl font-bold font-serif text-emerald-400">{routerState.indexEntriesCount}</p>
+                  <p className="text-[11px] text-slate-400">Notícias mapeadas com localização exata.</p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+                  <span className="text-xs text-slate-500 block">Total Catalogado</span>
+                  <p className="text-2xl font-bold font-serif text-blue-400">{routerState.totalArticlesCount}</p>
+                  <p className="text-[11px] text-slate-400">100% de preservação garantida.</p>
+                </div>
+              </div>
+
+              {/* Sync Action */}
               <div className="p-5 rounded-xl border border-blue-900/60 bg-blue-950/20 space-y-4">
                 <div>
-                  <h4 className="font-bold text-white text-base">Espelhar Notícias Estáticas no Firebase</h4>
+                  <h4 className="font-bold text-white text-base">Espelhar Acervo nos Bancos Firebase</h4>
                   <p className="text-xs text-slate-400 mt-1">
-                    Copia e sincroniza o lote de {staticNewsData.length} notícias in-code para a árvore <code className="text-blue-300 font-mono">/news</code> no
-                    Firebase Realtime Database (em ambas as instâncias configuradas).
+                    Grava o acervo no banco ativo respeitando o teto de 950MB e atualiza o índice catalográfico leve.
                   </p>
                 </div>
 
@@ -560,212 +692,78 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                   }`}
                 >
                   <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
-                  <span>{isSyncing ? "Sincronizando Acervo..." : "Iniciar Espelhamento no Firebase"}</span>
+                  <span>{isSyncing ? "Sincronizando..." : "Executar Espelhamento e Indexação"}</span>
                 </button>
               </div>
             </div>
           )}
 
-          {/* TAB 3: MÉTRICAS & GOOGLE AUTH */}
+          {/* TAB 4: ADMINISTRADORES AUTORIZADOS */}
           {activeTab === "auth" && (
             <div className="space-y-6">
-              {/* Notice regarding Google Auth role */}
-              <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-900/60 text-xs space-y-2 text-amber-200">
-                <div className="flex items-center gap-2 font-bold text-amber-300">
-                  <Shield className="w-4 h-4" />
-                  <span>Uso Exclusivo para Estatísticas e Auditoria Administrativa</span>
-                </div>
-                <p className="leading-relaxed text-amber-200/90">
-                  A autenticação do Google via Firebase Authentication atua <strong>exclusivamente</strong> como uma
-                  camada de estatística e controle de acessos no painel. O fluxo de navegação, a leitura de matérias e a
-                  experiência dos visitantes permanecem 100% abertas e sem qualquer exigência de cadastro ou login.
-                </p>
-              </div>
-
-              {/* User Authentication Status */}
               <div className="p-5 rounded-xl bg-slate-950 border border-slate-800 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-white text-sm">Status do Usuário Administrativo</h4>
-                  <span
-                    className={`text-xs px-2.5 py-0.5 rounded-full font-mono ${
-                      authState.isAdmin
-                        ? "bg-emerald-950 text-emerald-300 border border-emerald-800"
-                        : "bg-slate-800 text-slate-400 border border-slate-700"
-                    }`}
-                  >
-                    {authState.isAdmin ? "Sessão Ativa" : "Visitante Anônimo"}
+                  <div>
+                    <h4 className="font-bold text-white text-sm">Sessão Administrativa Atual</h4>
+                    <p className="text-xs text-slate-400">Autenticado via Firebase Authentication nativo</p>
+                  </div>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-mono bg-emerald-950 text-emerald-300 border border-emerald-800">
+                    Administrador Verificado
                   </span>
                 </div>
 
-                {authState.isAdmin ? (
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-slate-900 border border-slate-800">
-                    <div className="flex items-center gap-3">
-                      {authState.photoURL ? (
-                        <img
-                          src={authState.photoURL}
-                          alt="Avatar"
-                          className="w-10 h-10 rounded-full border border-blue-500"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-blue-600/30 border border-blue-500 flex items-center justify-center text-blue-300 font-bold">
-                          {authState.displayName?.charAt(0) || "A"}
-                        </div>
-                      )}
-                      <div>
-                        <p className="text-sm font-bold text-white">{authState.displayName || "Administrador"}</p>
-                        <p className="text-xs text-slate-400 font-mono">{authState.email}</p>
-                      </div>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-slate-900 border border-slate-800">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-blue-600/30 border border-blue-500 flex items-center justify-center text-blue-300 font-bold">
+                      {authState.displayName?.charAt(0) || "A"}
                     </div>
+                    <div>
+                      <p className="text-sm font-bold text-white">{authState.displayName || "Administrador"}</p>
+                      <p className="text-xs text-slate-400 font-mono">{authState.email}</p>
+                    </div>
+                  </div>
 
-                    <button
-                      onClick={handleLogout}
-                      className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-red-950/60 border border-red-800/80 text-red-300 hover:bg-red-900 transition-colors flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
-                    >
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Encerrar Sessão</span>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
-                    <p className="text-xs text-slate-400">
-                      Conecte-se com sua conta Google para registrar métricas de administração e habilitar sincronização
-                      com credenciais verificadas.
-                    </p>
-                    <button
-                      onClick={handleGoogleLogin}
-                      className="px-4 py-2.5 rounded-xl text-xs font-bold bg-white text-slate-900 hover:bg-slate-100 flex items-center gap-2.5 transition-all shadow-md cursor-pointer"
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 24 24">
-                        <path
-                          fill="#4285F4"
-                          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                        />
-                        <path
-                          fill="#34A853"
-                          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                        />
-                        <path
-                          fill="#FBBC05"
-                          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                        />
-                        <path
-                          fill="#EA4335"
-                          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                        />
-                      </svg>
-                      <span>Entrar com Google (Painel de Métricas)</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* Authorized Administrators List from ADMINISTRADORES variable */}
-                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
-                  <h5 className="font-bold text-white text-xs flex items-center gap-2">
-                    <Shield className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Administradores Autorizados (Variável ADMINISTRADORES)</span>
-                  </h5>
-                  <p className="text-[11px] text-slate-400">
-                    Apenas os e-mails Google cadastrados na variável de ambiente possuem acesso a este painel:
-                  </p>
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {getAdminEmailsList().map((adminEmail, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2 py-0.5 rounded bg-blue-950/80 border border-blue-800/80 text-blue-300 font-mono text-[11px]"
-                      >
-                        {adminEmail}
-                      </span>
-                    ))}
-                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-red-950/60 border border-red-800/80 text-red-300 hover:bg-red-900 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Encerrar Sessão</span>
+                  </button>
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* TAB 4: GUIA DE CONFIGURAÇÃO MANUAL NO CONSOLE */}
-          {activeTab === "guide" && (
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-blue-950/30 border border-blue-900/60 text-xs text-slate-300 space-y-2">
-                <div className="flex items-center gap-2 font-bold text-blue-300">
-                  <ExternalLink className="w-4 h-4" />
-                  <span>Passo a Passo Manual no Console do Firebase</span>
-                </div>
-                <p className="leading-relaxed">
-                  A configuração do provedor Google OAuth e dos domínios autorizados exige permissão de proprietário no
-                  Firebase Console. Siga os passos abaixo:
+              {/* List of configured administrators from variable */}
+              <div className="p-5 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-blue-400" />
+                  E-mails com Permissão de Administrador (<code className="text-blue-400 font-mono">ADMINISTRADORES</code>)
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Somente os endereços abaixo podem visualizar esta tela de métricas e tráfego:
                 </p>
-              </div>
 
-              <div className="space-y-3 text-xs">
-                <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
-                  <div className="font-bold text-white flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-blue-600/30 text-blue-400 flex items-center justify-center font-mono text-[11px]">
-                      1
-                    </span>
-                    <span>Ativar o Provedor Google</span>
-                  </div>
-                  <p className="text-slate-400 pl-7">
-                    No <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Firebase Console</a>,
-                    acesse <strong>Criação &gt; Authentication &gt; Guia "Sign-in method"</strong>. Clique em <strong>Google</strong>, marque <strong>Ativar</strong>, defina o e-mail de suporte do projeto e salve.
-                  </p>
-                </div>
-
-                <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
-                  <div className="font-bold text-white flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-blue-600/30 text-blue-400 flex items-center justify-center font-mono text-[11px]">
-                      2
-                    </span>
-                    <span>Adicionar Domínios Autorizados</span>
-                  </div>
-                  <p className="text-slate-400 pl-7">
-                    Ainda em Authentication, clique na aba <strong>Settings (Configurações)</strong> &gt; <strong>Authorized domains (Domínios autorizados)</strong> e adicione:
-                  </p>
-                  <ul className="list-disc list-inside text-slate-300 pl-7 font-mono text-[11px] space-y-0.5">
-                    <li>localhost</li>
-                    <li>{getSiteDomain()}</li>
-                    <li>ais-dev-orsqktujlwd4w5oczglz37-124157476255.us-west1.run.app</li>
-                    <li>ais-pre-orsqktujlwd4w5oczglz37-124157476255.us-west1.run.app</li>
-                  </ul>
-                </div>
-
-                <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
-                  <div className="font-bold text-white flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-blue-600/30 text-blue-400 flex items-center justify-center font-mono text-[11px]">
-                      3
-                    </span>
-                    <span>Criar o Realtime Database</span>
-                  </div>
-                  <p className="text-slate-400 pl-7">
-                    Acesse <strong>Criação &gt; Realtime Database &gt; Criar banco de dados</strong>. Escolha o local (ex: us-central1) e configure as regras de segurança para leitura pública das notícias e escrita de métricas:
-                  </p>
-                  <pre className="mt-2 p-2 rounded bg-slate-900 border border-slate-800 text-[10px] font-mono text-emerald-300 overflow-x-auto">
-{`{
-  "rules": {
-    "news": { ".read": true, ".write": "auth != null" },
-    "access_metrics": { ".read": "auth != null", ".write": true },
-    "traffic_stats": { ".read": true, ".write": true }
-  }
-}`}
-                  </pre>
+                <div className="space-y-2 pt-1">
+                  {getAdminEmailsList().map((adm, i) => (
+                    <div
+                      key={adm}
+                      className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-blue-900/60 text-blue-300 flex items-center justify-center text-[10px] font-mono">
+                          {i + 1}
+                        </span>
+                        <span className="font-mono text-white">{adm}</span>
+                      </div>
+                      <span className="text-[10px] text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/60">
+                        Autorizado
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           )}
-        </div>
-
-        {/* Modal Footer */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950 flex items-center justify-between text-xs text-slate-500">
-          <div className="flex items-center gap-1.5">
-            <Lock className="w-3.5 h-3.5 text-blue-400" />
-            <span>Sistema Seguro Norma Jurídica • Alta Disponibilidade Híbrida</span>
-          </div>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-lg transition-colors cursor-pointer"
-          >
-            Fechar
-          </button>
         </div>
       </div>
     </div>

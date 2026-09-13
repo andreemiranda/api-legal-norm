@@ -100,9 +100,20 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       {/* 4. Recent News / Destaques */}
       {recentNews.length > 0 && (
         <div className="bg-slate-900/90 border border-blue-900/50 rounded-xl p-4 shadow-lg">
-          <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-blue-300 border-b border-blue-900/40 pb-2.5 mb-3">
-            <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
-            <span>Últimas Notícias</span>
+          <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-blue-300 border-b border-blue-900/40 pb-2.5 mb-3">
+            <div className="flex items-center gap-1.5">
+              <TrendingUp className="w-3.5 h-3.5 text-blue-400" />
+              <span>
+                {selectedCategory && selectedCategory !== "Todas"
+                  ? `Últimas • ${selectedCategory}`
+                  : "Últimas Notícias (Em Rotação)"}
+              </span>
+            </div>
+            {selectedCategory && selectedCategory !== "Todas" && (
+              <span className="text-[10px] font-mono text-blue-400 font-normal">
+                {recentNews.length} itens
+              </span>
+            )}
           </div>
           <div className="space-y-4">
             {recentNews.slice(0, 5).map((item, idx) => {
@@ -127,11 +138,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                       </div>
                     )}
                   </div>
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <h4 className="text-xs font-bold text-slate-200 group-hover:text-blue-400 line-clamp-3 leading-snug transition-colors">
                       {item.title}
                     </h4>
-                    <span className="text-[9px] font-semibold uppercase text-blue-500 mt-1 block">
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (item.category) onSelectCategory?.(item.category);
+                      }}
+                      className="text-[9px] font-semibold uppercase text-blue-400 hover:text-blue-300 hover:underline mt-1 inline-block cursor-pointer transition-colors"
+                      title={`Filtrar por ${item.category}`}
+                    >
                       {item.category}
                     </span>
                   </div>

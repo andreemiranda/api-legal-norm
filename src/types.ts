@@ -28,6 +28,7 @@ export interface NewsSource {
   type: string;
   url: string;
   active: boolean;
+  originalSite?: string;
   _links?: {
     self?: {
       href: string;

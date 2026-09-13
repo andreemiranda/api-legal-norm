@@ -7,10 +7,11 @@ import { ChevronLeft, ChevronRight, Play, Pause, Clock, ArrowRight, BookOpen } f
 interface NewsCarouselProps {
   news: NewsItem[];
   onSelectNews: (item: NewsItem) => void;
+  onSelectCategory?: (category: string) => void;
 }
 
-export const NewsCarousel: React.FC<NewsCarouselProps> = ({ news, onSelectNews }) => {
-  // Guarantee exactly 6 items
+export const NewsCarousel: React.FC<NewsCarouselProps> = ({ news, onSelectNews, onSelectCategory }) => {
+  // Up to 6 items
   const items = news.slice(0, 6);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
@@ -98,7 +99,14 @@ export const NewsCarousel: React.FC<NewsCarouselProps> = ({ news, onSelectNews }
         <div className="absolute inset-0 p-6 sm:p-8 md:p-10 flex flex-col justify-end max-w-3xl z-10">
           {/* Metadata badges */}
           <div className="flex flex-wrap items-center gap-2.5 mb-3">
-            <span className="px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wider bg-blue-600 text-white shadow-md">
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                if (currentItem.category) onSelectCategory?.(currentItem.category);
+              }}
+              className="px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wider bg-blue-600 hover:bg-blue-500 text-white shadow-md cursor-pointer transition-colors"
+              title={`Filtrar somente notícias da editoria ${currentItem.category}`}
+            >
               {currentItem.category || "Em Destaque"}
             </span>
 
@@ -177,8 +185,11 @@ export const NewsCarousel: React.FC<NewsCarouselProps> = ({ news, onSelectNews }
         </div>
       </div>
 
-      {/* 6-Item Progress Track & Indicator Tabs */}
-      <div className="grid grid-cols-6 border-t border-blue-900/40 bg-slate-900/90 text-xs">
+      {/* Progress Track & Indicator Tabs */}
+      <div
+        className="grid border-t border-blue-900/40 bg-slate-900/90 text-xs"
+        style={{ gridTemplateColumns: `repeat(${Math.max(1, items.length)}, minmax(0, 1fr))` }}
+      >
         {items.map((item, idx) => {
           const isActive = idx === currentIndex;
           return (

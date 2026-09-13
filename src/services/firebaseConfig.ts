@@ -4,7 +4,7 @@
 
 import { initializeApp, getApps, FirebaseApp } from "firebase/app";
 import { getDatabase, Database } from "firebase/database";
-import { getAuth, Auth, GoogleAuthProvider } from "firebase/auth";
+import { getAuth, Auth } from "firebase/auth";
 
 export interface FirebaseInstanceConfig {
   apiKey?: string;
@@ -208,9 +208,3 @@ export function getMirrorFirebase(): {
     return { app: null, db: null, isValid: false };
   }
 }
-
-// Google Auth Provider setup
-export const googleAuthProvider = new GoogleAuthProvider();
-googleAuthProvider.setCustomParameters({
-  prompt: "select_account",
-});

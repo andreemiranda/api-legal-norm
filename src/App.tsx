@@ -23,6 +23,14 @@ import staticCategories from "./data/categories.json";
 import staticSources from "./data/sources.json";
 import initialNewsData from "./data/initialNews.json";
 import { searchNews } from "./utils/search";
+import { categoryToSlug, matchCategories } from "./utils/slug";
+import {
+  sortNewsChronological,
+  getRandomSeed,
+  getCarouselNews,
+  getRadarEditorialNews,
+  getSidebarNews,
+} from "./utils/editorialRotation";
 
 // Safe deduplicator for news arrays
 function deduplicateNews(items: NewsItem[]): NewsItem[] {
@@ -58,12 +66,22 @@ function MainPortal() {
   const perPage = 12;
 
   // Data states
-  const [news, setNews] = useState<NewsItem[]>(() => deduplicateNews(initialNewsData as NewsItem[]));
+  const [news, setNews] = useState<NewsItem[]>(() =>
+    sortNewsChronological(deduplicateNews(initialNewsData as NewsItem[]))
+  );
   const [categories, setCategories] = useState<CategoryItem[]>(staticCategories as CategoryItem[]);
   const [sources, setSources] = useState<NewsSource[]>(staticSources as NewsSource[]);
   const [isLoadingNews, setIsLoadingNews] = useState<boolean>(false);
   const [isSourcesModalOpen, setIsSourcesModalOpen] = useState<boolean>(false);
   const [isAdminMetricsOpen, setIsAdminMetricsOpen] = useState<boolean>(false);
+
+  // Random rotation seeds for intelligent section rotation across page refreshes (purely random, not alphabetical)
+  const [carouselSeed, setCarouselSeed] = useState<number>(() => getRandomSeed());
+  const [radarSeed, setRadarSeed] = useState<number>(() => getRandomSeed() + 500);
+  const [sidebarSeed, setSidebarSeed] = useState<number>(() => getRandomSeed() + 1000);
+
+  const handleRotateNextRadar = () => setRadarSeed((prev) => prev + Math.floor(Math.random() * 9999) + 1);
+  const handleRotateNextCarousel = () => setCarouselSeed((prev) => prev + Math.floor(Math.random() * 9999) + 1);
 
   // Check query parameter for admin metrics (?admin=metrics or ?metrics=1)
   useEffect(() => {
@@ -96,14 +114,14 @@ function MainPortal() {
         // 1. Attempt hybrid fetch through Firebase traffic router
         const hybridResult = await trafficRouter.fetchNews();
         if (hybridResult && hybridResult.news && hybridResult.news.length > 0) {
-          setNews(deduplicateNews(hybridResult.news));
+          setNews(sortNewsChronological(deduplicateNews(hybridResult.news)));
         } else {
           // 2. Fallback to server endpoint
           const newsRes = await fetch("/api/news?all=true");
           if (newsRes.ok) {
             const newsJson = await newsRes.json();
             if (newsJson.success && Array.isArray(newsJson.data) && newsJson.data.length > 0) {
-              setNews(deduplicateNews(newsJson.data));
+              setNews(sortNewsChronological(deduplicateNews(newsJson.data)));
             }
           }
         }
@@ -162,18 +180,20 @@ function MainPortal() {
     return filteredNews.slice(startIndex, startIndex + perPage);
   }, [filteredNews, currentPage, perPage]);
 
-  // 6 Items for the Home Carousel
-  const carouselNews = useMemo(() => {
-    return news.slice(0, 6);
-  }, [news]);
+  // 1. Dynamic Carousel: Rotates to a random editoria on every refresh; displays clicked editoria strictly
+  const carouselData = useMemo(() => {
+    return getCarouselNews(news, selectedCategory, carouselSeed, 6);
+  }, [news, selectedCategory, carouselSeed]);
 
-  // 8 Items for the pre-footer section
-  const preFooterNews = useMemo(() => {
-    if (news.length >= 8) {
-      return news.slice(6, 14);
-    }
-    return news.slice(0, 8);
-  }, [news]);
+  // 2. Dynamic Radar Editorial (Pre-Footer): Rotates to a random editoria on every refresh; displays clicked editoria strictly
+  const radarEditorialData = useMemo(() => {
+    return getRadarEditorialNews(news, selectedCategory, radarSeed, 8);
+  }, [news, selectedCategory, radarSeed]);
+
+  // 3. Dynamic Sidebar Recent News: Rotates across 5 distinct random editorias, or displays clicked editoria strictly
+  const sidebarData = useMemo(() => {
+    return getSidebarNews(news, selectedCategory, sidebarSeed, 5);
+  }, [news, selectedCategory, sidebarSeed]);
 
   // Handler to navigate between pages
   const handleNavigate = (view: string) => {
@@ -214,7 +234,8 @@ function MainPortal() {
     if (currentView !== "home") {
       setCurrentView("home");
     }
-    window.history.pushState({ view: "home", category }, "", "/");
+    const targetUrl = !category || category === "Todas" ? "/" : `/categoria/${categoryToSlug(category)}`;
+    window.history.pushState({ view: "home", category }, "", targetUrl);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -232,6 +253,16 @@ function MainPortal() {
       } else {
         const path = window.location.pathname;
         if (path === "/" || path === "") {
+          setCurrentView("home");
+          setSelectedCategory("Todas");
+        } else if (path.startsWith("/categoria/")) {
+          const rawSlug = path.replace("/categoria/", "").trim();
+          const matched = categories.find((c) => matchCategories(c.category, rawSlug));
+          if (matched) {
+            setSelectedCategory(matched.category);
+          } else {
+            setSelectedCategory(decodeURIComponent(rawSlug));
+          }
           setCurrentView("home");
         } else {
           const slug = path.substring(1);
@@ -251,28 +282,64 @@ function MainPortal() {
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [news]);
+  }, [news, categories]);
 
   // Initial route parsing
   useEffect(() => {
     if (news.length > 0 && !window.history.state?.view) {
       const path = window.location.pathname;
       if (path !== "/" && path !== "") {
-        const slug = path.substring(1);
-        if (["privacidade", "termos", "cookies", "lgpd", "consentimento", "contato"].includes(slug)) {
-          setCurrentView(slug);
+        if (path.startsWith("/categoria/")) {
+          const rawSlug = path.replace("/categoria/", "").trim();
+          const matched = categories.find((c) => matchCategories(c.category, rawSlug));
+          if (matched) {
+            setSelectedCategory(matched.category);
+          } else {
+            setSelectedCategory(decodeURIComponent(rawSlug));
+          }
+          setCurrentView("home");
         } else {
-          const post = news.find(
-            (n) => n.slug === slug || n.slug === `post/${slug}` || String(n.id) === slug.replace("post-", "")
-          );
-          if (post) {
-            setSelectedPost(post);
-            setCurrentView("post");
+          const slug = path.substring(1);
+          if (["privacidade", "termos", "cookies", "lgpd", "consentimento", "contato"].includes(slug)) {
+            setCurrentView(slug);
+          } else {
+            const post = news.find(
+              (n) => n.slug === slug || n.slug === `post/${slug}` || String(n.id) === slug.replace("post-", "")
+            );
+            if (post) {
+              setSelectedPost(post);
+              setCurrentView("post");
+            }
           }
         }
       }
     }
-  }, [news]);
+  }, [news, categories]);
+
+  // Sync document.title for SEO and browser tabs
+  useEffect(() => {
+    if (currentView === "post" && selectedPost) {
+      document.title = `${selectedPost.title} - Norma Jurídica`;
+    } else if (currentView === "home") {
+      if (selectedCategory && selectedCategory !== "Todas") {
+        document.title = `${selectedCategory} - Notícias - Norma Jurídica`;
+      } else {
+        document.title = "Norma Jurídica - Portal de Notícias e Legislação";
+      }
+    } else if (currentView === "privacidade") {
+      document.title = "Política de Privacidade - Norma Jurídica";
+    } else if (currentView === "termos") {
+      document.title = "Termos de Uso - Norma Jurídica";
+    } else if (currentView === "cookies") {
+      document.title = "Política de Cookies - Norma Jurídica";
+    } else if (currentView === "lgpd") {
+      document.title = "Portal LGPD - Norma Jurídica";
+    } else if (currentView === "consentimento") {
+      document.title = "Preferências de Privacidade - Norma Jurídica";
+    } else if (currentView === "contato") {
+      document.title = "Fale Conosco - Norma Jurídica";
+    }
+  }, [currentView, selectedPost, selectedCategory]);
 
   // Related posts for current post
   const relatedPosts = useMemo(() => {
@@ -311,7 +378,10 @@ function MainPortal() {
               <HomePage
                 news={paginatedNews}
                 allNewsCount={filteredNews.length}
-                carouselNews={carouselNews}
+                carouselNews={carouselData.items}
+                carouselCategory={carouselData.featuredCategory}
+                isCarouselFiltered={carouselData.isFiltered}
+                onRotateCarousel={handleRotateNextCarousel}
                 selectedCategory={selectedCategory}
                 onSelectCategory={handleSelectCategory}
                 onSelectNews={handleSelectNews}
@@ -392,15 +462,22 @@ function MainPortal() {
               onSelectCategory={handleSelectCategory}
               onOpenSourcesModal={() => setIsSourcesModalOpen(true)}
               totalSourcesCount={sources.length}
-              recentNews={news.slice(0, 10)}
+              recentNews={sidebarData.items}
               onSelectNews={handleSelectNews}
             />
           </div>
         </div>
       </main>
 
-      {/* 3. Pre-Footer Grid (2 lines x 4 columns) */}
-      <FooterGrid news={preFooterNews} onSelectNews={handleSelectNews} />
+      {/* 3. Pre-Footer Grid (Radar Editorial - Destaques da Redação) */}
+      <FooterGrid
+        news={radarEditorialData.items}
+        featuredCategory={radarEditorialData.featuredCategory}
+        isFilteredByCategory={radarEditorialData.isFiltered}
+        onSelectNews={handleSelectNews}
+        onSelectCategory={handleSelectCategory}
+        onRotateCategory={handleRotateNextRadar}
+      />
 
       {/* 4. Footer */}
       <Footer

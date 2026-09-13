@@ -140,6 +140,7 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Light / Dark Mode Toggle (Default: Dark, Click: Light) */}
             <button
+              id="theme-toggle-btn"
               onClick={toggleTheme}
               className="flex items-center gap-1 px-2 py-1 rounded-md bg-slate-800/80 hover:bg-slate-800 text-slate-200 hover:text-amber-300 transition-colors border border-slate-700/50"
               title={theme === "dark" ? "Alternar para Modo Claro" : "Alternar para Modo Escuro"}
@@ -266,9 +267,6 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="font-serif text-2xl sm:text-3xl font-extrabold tracking-wider text-white uppercase drop-shadow-sm">
                   Norma <span className="text-blue-400">Jurídica</span>
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-950/80 border border-blue-700/50 text-blue-300 font-sans tracking-wide">
-                  PORTAL OFICIAL
-                </span>
               </div>
               <p className="text-xs text-blue-200/80 font-serif tracking-wide mt-0.5">
                 Jornalismo Jurídico, Legislação e Cobertura Nacional
@@ -317,7 +315,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="text-xs font-serif font-bold uppercase tracking-wider text-blue-400">
                 Editorias Principais
               </span>
-              <span className="text-[10px] text-slate-400">({categories.length} Seções)</span>
             </div>
 
             {/* Mini Category Filter Input */}
