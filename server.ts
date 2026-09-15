@@ -17,6 +17,7 @@ if (fs.existsSync(path.join(process.cwd(), ".env"))) {
 }
 
 const app = express();
+app.set("trust proxy", 1); // Confia no proxy reverso do Cloud Run (Evita erro do express-rate-limit com X-Forwarded-For)
 const PORT = 3000;
 
 // Security Middleware
@@ -39,17 +40,20 @@ const apiLimiter = rateLimit({
   message: { success: false, error: "Muitas requisições, tente novamente mais tarde." },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false, xForwardedForHeader: false },
 });
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20, // stricter limit for auth
-  message: { success: false, valid: false, error: "Muitas tentativas, tente novamente mais tarde." }
+  message: { success: false, valid: false, error: "Muitas tentativas, tente novamente mais tarde." },
+  validate: { trustProxy: false, xForwardedForHeader: false },
 });
 
 const contactLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
   max: 10, // 10 messages per hour per IP
-  message: { success: false, error: "Muitas mensagens enviadas, aguarde algumas horas." }
+  message: { success: false, error: "Muitas mensagens enviadas, aguarde algumas horas." },
+  validate: { trustProxy: false, xForwardedForHeader: false },
 });
 
 app.use("/api/", apiLimiter);
