@@ -250,7 +250,7 @@ export const Footer: React.FC<FooterProps> = ({
               <span>Preferências de Cookies</span>
             </button>
 
-            {onOpenAdminMetrics && (
+            {authState.isAdmin && onOpenAdminMetrics && (
               <button
                 id="footer-admin-metrics-button"
                 onClick={onOpenAdminMetrics}

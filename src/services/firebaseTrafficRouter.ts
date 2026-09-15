@@ -1,14 +1,17 @@
 // Multi-Instance Firebase Realtime Database Traffic & Storage Router
 // Architecture:
 // 1. Dual Spark Instance Management: Banco 1 (legal-norm2) & Banco 2 (legal-norm3)
-// 2. Storage Rotation (Independent): 1GB max per DB. At 950MB on active DB, writes route to second DB.
-//    If both reach 950MB, triggers alert in Admin Metrics without ever deleting or overwriting any news.
-// 3. Traffic Rotation (Independent): 10GB monthly download bandwidth per DB. At 9.5GB, reads route to other DB.
-//    Auto-resets monthly. Total combined capacity: ~1900MB storage and ~19GB traffic per month.
-// 4. Lightweight Index Layer: JSON/hash catalog tracking physical location (primary, mirror, both, static) of each article.
-// 5. In-code static fallback: guarantees 0% downtime and 100% news preservation if both databases are unreachable.
+// 2. Storage Rotation & Sobrescrição (~1.9 GB total, ~950 MB por instância):
+//    Quando o Banco 1 atinge 950 MB, gravações rotacionam para o Banco 2.
+//    Se ambos atingirem a capacidade limite de 1.9 GB, ativa sobrescrição automática (FIFO)
+//    substituindo os artigos mais antigos por novos para trabalhar continuamente perto do limite.
+// 3. Traffic Rotation & Sobrescrição (~20 GB total, ~9.8 GB por instância):
+//    Quando o Banco 1 atinge 9.8 GB, leituras rotacionam para o Banco 2.
+//    Ao aproximar-se do teto global de 20 GB, ativa sobrescrição de tráfego (cache otimizado
+//    e expurgo de telemetrias) para operar perto do limite sem interrupção.
+// 4. Sem dependência de JSON estático: Opera exclusivamente conectado aos bancos Realtime Database.
 
-import { ref, get, set, child } from "firebase/database";
+import { ref, get, set, child, remove, onValue, type Unsubscribe } from "firebase/database";
 import {
   getPrimaryFirebase,
   getMirrorFirebase,
@@ -17,16 +20,21 @@ import {
   mirrorConfig,
 } from "./firebaseConfig";
 import { NewsItem } from "../types";
-import staticNewsData from "../data/initialNews.json";
+import { NEWS_API_CONFIG } from "./newsApiConfig";
 
-export type TrafficSource = "primary" | "mirror" | "static";
-export type StorageTarget = "primary" | "mirror" | "both" | "static";
+export type TrafficSource = "primary" | "mirror" | "api";
+export type StorageTarget = "primary" | "mirror" | "both";
 
-// 1 GB & 10 GB limits in bytes (Spark Plan)
-export const ONE_GB_IN_BYTES = 1024 * 1024 * 1024; // 1,073,741,824 bytes
-export const NINE_FIFTY_MB_IN_BYTES = 950 * 1024 * 1024; // 996,147,200 bytes (~950MB)
-export const TEN_GB_IN_BYTES = 10 * 1024 * 1024 * 1024; // 10,737,418,240 bytes
-export const NINE_POINT_FIVE_GB_IN_BYTES = 9.5 * 1024 * 1024 * 1024; // 10,200,547,328 bytes (~9.5GB)
+// Operational Limits: 1.9 GB Storage & 20 GB Traffic
+export const TOTAL_STORAGE_LIMIT_BYTES = 1932735283; // ~1.9 GB
+export const PER_DB_STORAGE_THRESHOLD = 950 * 1024 * 1024; // 950 MB per instance
+export const ONE_GB_IN_BYTES = 1024 * 1024 * 1024;
+export const NINE_FIFTY_MB_IN_BYTES = PER_DB_STORAGE_THRESHOLD;
+
+export const TOTAL_TRAFFIC_LIMIT_BYTES = 21474836480; // ~20 GB
+export const PER_DB_TRAFFIC_THRESHOLD = Math.floor(9.8 * 1024 * 1024 * 1024); // ~9.8 GB per instance
+export const TEN_GB_IN_BYTES = 10 * 1024 * 1024 * 1024;
+export const NINE_POINT_FIVE_GB_IN_BYTES = PER_DB_TRAFFIC_THRESHOLD;
 
 export interface NewsIndexEntry {
   id: string | number;
@@ -44,7 +52,6 @@ export interface NewsCatalogIndex {
   totalArticles: number;
   primaryCount: number;
   mirrorCount: number;
-  staticCount: number;
   primaryStorageBytes: number;
   mirrorStorageBytes: number;
   updatedAt: string;
@@ -54,7 +61,7 @@ export interface NewsCatalogIndex {
 export interface ProjectBandwidthStats {
   bytesUsed: number;
   limitBytes: number;
-  thresholdBytes: number; // 9.5 GB
+  thresholdBytes: number;
   requestCount: number;
   errorCount: number;
   lastActive: string | null;
@@ -63,20 +70,32 @@ export interface ProjectBandwidthStats {
 export interface ProjectStorageStats {
   bytesUsed: number;
   limitBytes: number;
-  thresholdBytes: number; // 950 MB
+  thresholdBytes: number;
   articleCount: number;
   isNearLimit: boolean;
   lastWrite: string | null;
 }
 
+export interface SobrescricaoState {
+  isStorageSobrescricaoActive: boolean;
+  isTrafficSobrescricaoActive: boolean;
+  totalStorageLimitBytes: number;
+  totalTrafficLimitBytes: number;
+  storageSobrescricaoCount: number;
+  trafficSobrescricaoCount: number;
+  lastSobrescricaoAt: string | null;
+  prunedArticlesCount: number;
+}
+
 export interface TrafficRouterState {
   activeReadSource: TrafficSource;
-  activeWriteTarget: "primary" | "mirror" | "warning_both_full";
+  activeWriteTarget: "primary" | "mirror" | "sobrescricao_both_active";
   bothStorageNearLimit: boolean;
   primaryTraffic: ProjectBandwidthStats;
   mirrorTraffic: ProjectBandwidthStats;
   primaryStorage: ProjectStorageStats;
   mirrorStorage: ProjectStorageStats;
+  sobrescricao: SobrescricaoState;
   isPrimaryConfigured: boolean;
   isMirrorConfigured: boolean;
   totalArticlesCount: number;
@@ -86,8 +105,9 @@ export interface TrafficRouterState {
   monthCycle: string;
 }
 
-const STORAGE_KEY_PREFIX = "nj_rtdb_traffic_v2_";
-const INDEX_STORAGE_KEY = "nj_news_catalog_index_v2";
+const STORAGE_KEY_PREFIX = "nj_rtdb_traffic_v3_";
+const INDEX_STORAGE_KEY = "nj_news_catalog_index_v3";
+const CACHE_NEWS_KEY = "nj_rtdb_cached_news_v3";
 
 const getCurrentMonthKey = () => {
   const d = new Date();
@@ -98,11 +118,11 @@ class FirebaseTrafficRouter {
   private activeReadSource: TrafficSource = "primary";
   private isManualOverride: boolean = false;
 
-  // Monthly bandwidth tracking (Resets every 1st of month)
+  // Monthly bandwidth tracking (~20 GB total across instances)
   private primaryTraffic: ProjectBandwidthStats = {
     bytesUsed: 0,
     limitBytes: TEN_GB_IN_BYTES,
-    thresholdBytes: NINE_POINT_FIVE_GB_IN_BYTES,
+    thresholdBytes: PER_DB_TRAFFIC_THRESHOLD,
     requestCount: 0,
     errorCount: 0,
     lastActive: null,
@@ -111,18 +131,18 @@ class FirebaseTrafficRouter {
   private mirrorTraffic: ProjectBandwidthStats = {
     bytesUsed: 0,
     limitBytes: TEN_GB_IN_BYTES,
-    thresholdBytes: NINE_POINT_FIVE_GB_IN_BYTES,
+    thresholdBytes: PER_DB_TRAFFIC_THRESHOLD,
     requestCount: 0,
     errorCount: 0,
     lastActive: null,
   };
 
-  // Persistent Storage Space Tracking (1GB limit each, rotation at 950MB)
+  // Storage Space Tracking (~1.9 GB total: 950 MB per instance)
   private primaryStorage: ProjectStorageStats = {
-    bytesUsed: 0,
+    bytesUsed: 4757104, // Initial known size of legal-norm2
     limitBytes: ONE_GB_IN_BYTES,
-    thresholdBytes: NINE_FIFTY_MB_IN_BYTES,
-    articleCount: 0,
+    thresholdBytes: PER_DB_STORAGE_THRESHOLD,
+    articleCount: 651,
     isNearLimit: false,
     lastWrite: null,
   };
@@ -130,61 +150,58 @@ class FirebaseTrafficRouter {
   private mirrorStorage: ProjectStorageStats = {
     bytesUsed: 0,
     limitBytes: ONE_GB_IN_BYTES,
-    thresholdBytes: NINE_FIFTY_MB_IN_BYTES,
+    thresholdBytes: PER_DB_STORAGE_THRESHOLD,
     articleCount: 0,
     isNearLimit: false,
     lastWrite: null,
   };
 
-  // Lightweight index catalog
+  // Sobrescrição Engine State
+  private sobrescricao: SobrescricaoState = {
+    isStorageSobrescricaoActive: true,
+    isTrafficSobrescricaoActive: true,
+    totalStorageLimitBytes: TOTAL_STORAGE_LIMIT_BYTES,
+    totalTrafficLimitBytes: TOTAL_TRAFFIC_LIMIT_BYTES,
+    storageSobrescricaoCount: 0,
+    trafficSobrescricaoCount: 0,
+    lastSobrescricaoAt: null,
+    prunedArticlesCount: 0,
+  };
+
+  // Lightweight index catalog (purely Realtime Database)
   private catalogIndex: NewsCatalogIndex = {
-    version: 2,
-    totalArticles: 0,
-    primaryCount: 0,
+    version: 3,
+    totalArticles: 651,
+    primaryCount: 651,
     mirrorCount: 0,
-    staticCount: staticNewsData.length,
-    primaryStorageBytes: 0,
+    primaryStorageBytes: 4757104,
     mirrorStorageBytes: 0,
     updatedAt: new Date().toISOString(),
     entries: {},
   };
 
+  private inMemoryNewsCache: NewsItem[] = [];
   private listeners: Array<(state: TrafficRouterState) => void> = [];
   private monitorTimer: any = null;
 
+  // Real-time synchronization state
+  private newsSubscribers: Set<(news: NewsItem[]) => void> = new Set();
+  private rtdbUnsubscribe: Unsubscribe | null = null;
+  private sseSource: EventSource | null = null;
+  private realtimePollTimer: any = null;
+  private lastKnownSignature: string = "";
+
   constructor() {
-    this.bootstrapStaticIndex();
     this.loadPersistedData();
     this.evaluateReadRouting();
     this.evaluateWriteTarget();
     this.startPeriodicMonitor();
   }
 
-  // Populate initial index from in-code static news fallback
-  private bootstrapStaticIndex() {
-    for (const item of staticNewsData as NewsItem[]) {
-      const key = String(item.slug || item.id || item.link);
-      const estSize = new Blob([JSON.stringify(item)]).size;
-      this.catalogIndex.entries[key] = {
-        id: item.id,
-        slug: item.slug || "",
-        title: item.title,
-        category: item.category || "Notícias",
-        pubDate: item.pubDate || new Date().toISOString(),
-        storedIn: "static",
-        sizeBytes: estSize,
-        lastVerified: new Date().toISOString(),
-      };
-    }
-    this.catalogIndex.totalArticles = Object.keys(this.catalogIndex.entries).length;
-  }
-
-  // Load monthly usage and index from persistent browser storage
   private loadPersistedData() {
     try {
       if (typeof window === "undefined") return;
 
-      // 1. Monthly Traffic
       const monthKey = getCurrentMonthKey();
       const rawTraffic = localStorage.getItem(monthKey);
       if (rawTraffic) {
@@ -196,33 +213,36 @@ class FirebaseTrafficRouter {
         }
       }
 
-      // 2. Storage stats
-      const rawStorage = localStorage.getItem("nj_rtdb_storage_stats_v2");
+      const rawStorage = localStorage.getItem("nj_rtdb_storage_stats_v3");
       if (rawStorage) {
         const parsed = JSON.parse(rawStorage);
         if (parsed.primaryStorage) this.primaryStorage = { ...this.primaryStorage, ...parsed.primaryStorage };
         if (parsed.mirrorStorage) this.mirrorStorage = { ...this.mirrorStorage, ...parsed.mirrorStorage };
+        if (parsed.sobrescricao) this.sobrescricao = { ...this.sobrescricao, ...parsed.sobrescricao };
       }
 
-      // 3. Lightweight Index
       const rawIndex = localStorage.getItem(INDEX_STORAGE_KEY);
       if (rawIndex) {
         const parsed: NewsCatalogIndex = JSON.parse(rawIndex);
         if (parsed.entries) {
           this.catalogIndex.entries = { ...this.catalogIndex.entries, ...parsed.entries };
           this.catalogIndex.totalArticles = Object.keys(this.catalogIndex.entries).length;
-          this.catalogIndex.primaryCount = parsed.primaryCount || 0;
+          this.catalogIndex.primaryCount = parsed.primaryCount || this.catalogIndex.totalArticles;
           this.catalogIndex.mirrorCount = parsed.mirrorCount || 0;
           this.catalogIndex.primaryStorageBytes = parsed.primaryStorageBytes || this.primaryStorage.bytesUsed;
           this.catalogIndex.mirrorStorageBytes = parsed.mirrorStorageBytes || this.mirrorStorage.bytesUsed;
         }
+      }
+
+      const rawCachedNews = sessionStorage.getItem(CACHE_NEWS_KEY);
+      if (rawCachedNews) {
+        this.inMemoryNewsCache = JSON.parse(rawCachedNews);
       }
     } catch (e) {
       console.warn("Traffic/Storage persistence load error:", e);
     }
   }
 
-  // Save state to local storage
   private savePersistedData() {
     try {
       if (typeof window === "undefined") return;
@@ -239,10 +259,11 @@ class FirebaseTrafficRouter {
       );
 
       localStorage.setItem(
-        "nj_rtdb_storage_stats_v2",
+        "nj_rtdb_storage_stats_v3",
         JSON.stringify({
           primaryStorage: this.primaryStorage,
           mirrorStorage: this.mirrorStorage,
+          sobrescricao: this.sobrescricao,
           updatedAt: new Date().toISOString(),
         })
       );
@@ -260,6 +281,142 @@ class FirebaseTrafficRouter {
     };
   }
 
+  /**
+   * Sincronização e Atualização das Notícias em Tempo Real
+   * Conecta ouvintes nativos Realtime Database (onValue) + SSE stream do servidor
+   * Atualiza os dados instantaneamente em segundo plano sem necessidade de recarregar a página.
+   */
+  public subscribeToRealtimeNews(listener: (news: NewsItem[]) => void): () => void {
+    this.newsSubscribers.add(listener);
+
+    // Imediatamente entrega o cache em memória se já disponível
+    if (this.inMemoryNewsCache.length > 0) {
+      try {
+        listener(this.inMemoryNewsCache);
+      } catch {}
+    }
+
+    if (this.newsSubscribers.size === 1) {
+      this.startRealtimeSync();
+    }
+
+    return () => {
+      this.newsSubscribers.delete(listener);
+      if (this.newsSubscribers.size === 0) {
+        this.stopRealtimeSync();
+      }
+    };
+  }
+
+  private notifyNewsSubscribers(items: NewsItem[]) {
+    if (!items || items.length === 0) return;
+    const sig = `${items.length}_${items[0]?.id || ""}_${items[0]?.slug || ""}`;
+    if (sig === this.lastKnownSignature) return;
+    this.lastKnownSignature = sig;
+    this.inMemoryNewsCache = items;
+
+    this.newsSubscribers.forEach((cb) => {
+      try {
+        cb(items);
+      } catch {}
+    });
+  }
+
+  private startRealtimeSync() {
+    if (typeof window === "undefined") return;
+
+    // 1. Firebase Realtime Database onValue Listener (WebSocket Nativo do Firebase)
+    try {
+      const fbInstance = this.activeReadSource === "mirror" ? getMirrorFirebase() : getPrimaryFirebase();
+      if (fbInstance.isValid && fbInstance.db) {
+        const newsRef = ref(fbInstance.db, "news");
+        this.rtdbUnsubscribe = onValue(
+          newsRef,
+          (snapshot) => {
+            if (snapshot.exists()) {
+              const val = snapshot.val();
+              const items: NewsItem[] = Array.isArray(val)
+                ? val.filter(Boolean)
+                : typeof val === "object" && val !== null
+                ? Object.values(val)
+                : [];
+
+              if (items.length > 0) {
+                this.notifyNewsSubscribers(items);
+              }
+            }
+          },
+          (err) => {
+            console.warn("[Realtime RTDB] Listener warning:", err?.message || err);
+          }
+        );
+      }
+    } catch (e) {
+      console.warn("[Realtime RTDB] Setup notice:", e);
+    }
+
+    // 2. Server-Sent Events (SSE) Stream para sincronização com a API em tempo real
+    try {
+      if (typeof EventSource !== "undefined" && !this.sseSource) {
+        this.sseSource = new EventSource("/api/realtime/news-stream");
+        this.sseSource.onmessage = async (event) => {
+          try {
+            if (!event.data) return;
+            const payload = JSON.parse(event.data);
+            if (payload.type === "news_update") {
+              const res = await this.fetchNews();
+              if (res && res.news && res.news.length > 0) {
+                this.notifyNewsSubscribers(res.news);
+              }
+            }
+          } catch {}
+        };
+        this.sseSource.onerror = () => {
+          // SSE auto-reconnects automaticamente
+        };
+      }
+    } catch (e) {
+      console.warn("[Realtime SSE] Setup notice:", e);
+    }
+
+    // 3. Verificação periódica silenciosa em segundo plano a cada 20 segundos
+    if (this.realtimePollTimer) clearInterval(this.realtimePollTimer);
+    this.realtimePollTimer = setInterval(async () => {
+      try {
+        const checkRes = await fetch("/api/realtime/check");
+        if (checkRes.ok) {
+          const info = await checkRes.json();
+          const sig = `${info.total}_${info.latestId || ""}_${info.latestSlug || ""}`;
+          if (sig !== this.lastKnownSignature) {
+            const fetched = await this.fetchNews();
+            if (fetched && fetched.news && fetched.news.length > 0) {
+              this.notifyNewsSubscribers(fetched.news);
+            }
+          }
+        }
+      } catch {}
+    }, 20000);
+  }
+
+  private stopRealtimeSync() {
+    if (this.rtdbUnsubscribe) {
+      try {
+        this.rtdbUnsubscribe();
+      } catch {}
+      this.rtdbUnsubscribe = null;
+    }
+    if (this.sseSource) {
+      try {
+        this.sseSource.close();
+      } catch {}
+      this.sseSource = null;
+    }
+    if (this.realtimePollTimer) {
+      clearInterval(this.realtimePollTimer);
+      this.realtimePollTimer = null;
+    }
+  }
+
   private notifyListeners() {
     const state = this.getState();
     this.listeners.forEach((cb) => {
@@ -273,7 +430,6 @@ class FirebaseTrafficRouter {
     if (typeof window === "undefined") return;
     if (this.monitorTimer) clearInterval(this.monitorTimer);
 
-    // Watchdog runs every 45 seconds to re-check thresholds and month rollover
     this.monitorTimer = setInterval(() => {
       this.evaluateReadRouting();
       this.evaluateWriteTarget();
@@ -281,19 +437,20 @@ class FirebaseTrafficRouter {
   }
 
   /**
-   * Evaluates Storage Space Rotation (Independent of Traffic)
-   * Banco 1 threshold: 950MB -> switches write target to Banco 2
-   * If both near 950MB -> flags warning_both_full (never deletes or overwrites)
+   * Evaluates Storage Target and Sobrescrição Trigger (~1.9 GB total)
+   * 1. If Banco 1 < 950MB -> routes to Primary
+   * 2. If Banco 1 >= 950MB and Banco 2 < 950MB -> routes to Mirror
+   * 3. If BOTH near 950MB (~1.9GB total) -> activates Sobrescrição (FIFO overwrite)
    */
-  public evaluateWriteTarget(): "primary" | "mirror" | "warning_both_full" {
+  public evaluateWriteTarget(): "primary" | "mirror" | "sobrescricao_both_active" {
     const primaryFb = getPrimaryFirebase();
     const mirrorFb = getMirrorFirebase();
 
-    this.primaryStorage.isNearLimit = this.primaryStorage.bytesUsed >= NINE_FIFTY_MB_IN_BYTES;
-    this.mirrorStorage.isNearLimit = this.mirrorStorage.bytesUsed >= NINE_FIFTY_MB_IN_BYTES;
+    this.primaryStorage.isNearLimit = this.primaryStorage.bytesUsed >= PER_DB_STORAGE_THRESHOLD;
+    this.mirrorStorage.isNearLimit = this.mirrorStorage.bytesUsed >= PER_DB_STORAGE_THRESHOLD;
 
     if (this.primaryStorage.isNearLimit && this.mirrorStorage.isNearLimit) {
-      return "warning_both_full";
+      return "sobrescricao_both_active";
     }
 
     if (primaryFb.isValid && !this.primaryStorage.isNearLimit) {
@@ -304,13 +461,14 @@ class FirebaseTrafficRouter {
       return "mirror";
     }
 
-    return primaryFb.isValid ? "primary" : "mirror";
+    return "primary";
   }
 
   /**
-   * Evaluates Traffic Download Bandwidth Rotation (Independent of Storage)
-   * At 9.5GB on reading instance -> routes reads to other instance
-   * Auto-resets with new monthly billing cycle
+   * Evaluates Traffic Download Bandwidth Routing (~20 GB total)
+   * 1. If Banco 1 < 9.8 GB -> routes to Primary
+   * 2. If Banco 1 >= 9.8 GB and Banco 2 < 9.8 GB -> routes to Mirror
+   * 3. If BOTH near 9.8 GB (~20 GB total) -> activates Traffic Sobrescrição
    */
   public evaluateReadRouting(): TrafficSource {
     if (this.isManualOverride) {
@@ -320,22 +478,21 @@ class FirebaseTrafficRouter {
     const primaryFb = getPrimaryFirebase();
     const mirrorFb = getMirrorFirebase();
 
-    // 1. Check if Primary bandwidth is below 9.5GB safety ceiling
-    if (primaryFb.isValid && this.primaryTraffic.bytesUsed < NINE_POINT_FIVE_GB_IN_BYTES) {
+    const primaryBytes = this.primaryTraffic.bytesUsed;
+    const mirrorBytes = this.mirrorTraffic.bytesUsed;
+
+    if (primaryFb.isValid && primaryBytes < PER_DB_TRAFFIC_THRESHOLD) {
       this.activeReadSource = "primary";
-    }
-    // 2. If Primary >= 9.5GB, rotate to Mirror instance
-    else if (mirrorFb.isValid && this.mirrorTraffic.bytesUsed < NINE_POINT_FIVE_GB_IN_BYTES) {
-      console.info(
-        "⚡ [Traffic Router] Rotação de Tráfego Ativada: Banco 1 atingiu 9.5GB. Consultas redirecionadas para o Banco 2 (10GB)."
-      );
+    } else if (mirrorFb.isValid && mirrorBytes < PER_DB_TRAFFIC_THRESHOLD) {
       this.activeReadSource = "mirror";
-    }
-    // 3. Fallback: if both reached threshold or mirror not reachable
-    else if (primaryFb.isValid && this.primaryTraffic.bytesUsed < TEN_GB_IN_BYTES) {
-      this.activeReadSource = "primary";
+    } else if (primaryBytes + mirrorBytes >= TOTAL_TRAFFIC_LIMIT_BYTES * 0.95) {
+      // Traffic Sobrescrição mode: use in-memory cache and API proxy
+      this.sobrescricao.isTrafficSobrescricaoActive = true;
+      this.sobrescricao.trafficSobrescricaoCount++;
+      this.sobrescricao.lastSobrescricaoAt = new Date().toISOString();
+      this.activeReadSource = primaryBytes <= mirrorBytes ? "primary" : "mirror";
     } else {
-      this.activeReadSource = "static";
+      this.activeReadSource = "primary";
     }
 
     this.savePersistedData();
@@ -353,7 +510,6 @@ class FirebaseTrafficRouter {
     this.evaluateReadRouting();
   }
 
-  // Record bandwidth consumption from reads
   private recordReadBandwidth(source: TrafficSource, bytes: number, hasError: boolean = false) {
     const now = new Date().toISOString();
     if (source === "primary") {
@@ -370,28 +526,27 @@ class FirebaseTrafficRouter {
     this.savePersistedData();
 
     if (
-      (source === "primary" && this.primaryTraffic.bytesUsed >= NINE_POINT_FIVE_GB_IN_BYTES) ||
-      (source === "mirror" && this.mirrorTraffic.bytesUsed >= NINE_POINT_FIVE_GB_IN_BYTES)
+      (source === "primary" && this.primaryTraffic.bytesUsed >= PER_DB_TRAFFIC_THRESHOLD) ||
+      (source === "mirror" && this.mirrorTraffic.bytesUsed >= PER_DB_TRAFFIC_THRESHOLD)
     ) {
       this.evaluateReadRouting();
     }
   }
 
-  // Record storage consumption from writes
   private recordWriteStorage(target: "primary" | "mirror", bytes: number, countDelta: number = 1) {
     const now = new Date().toISOString();
     if (target === "primary") {
       this.primaryStorage.bytesUsed += bytes;
       this.primaryStorage.articleCount += countDelta;
       this.primaryStorage.lastWrite = now;
-      this.primaryStorage.isNearLimit = this.primaryStorage.bytesUsed >= NINE_FIFTY_MB_IN_BYTES;
+      this.primaryStorage.isNearLimit = this.primaryStorage.bytesUsed >= PER_DB_STORAGE_THRESHOLD;
       this.catalogIndex.primaryStorageBytes = this.primaryStorage.bytesUsed;
       this.catalogIndex.primaryCount += countDelta;
     } else if (target === "mirror") {
       this.mirrorStorage.bytesUsed += bytes;
       this.mirrorStorage.articleCount += countDelta;
       this.mirrorStorage.lastWrite = now;
-      this.mirrorStorage.isNearLimit = this.mirrorStorage.bytesUsed >= NINE_FIFTY_MB_IN_BYTES;
+      this.mirrorStorage.isNearLimit = this.mirrorStorage.bytesUsed >= PER_DB_STORAGE_THRESHOLD;
       this.catalogIndex.mirrorStorageBytes = this.mirrorStorage.bytesUsed;
       this.catalogIndex.mirrorCount += countDelta;
     }
@@ -400,152 +555,147 @@ class FirebaseTrafficRouter {
   }
 
   /**
-   * Retrieves specific article using the lightweight index catalog
-   * Knows precisely which database holds the requested article
+   * Executes Storage Sobrescrição (FIFO overwrite of oldest news)
+   * When capacity reaches ~1.9 GB, prunes oldest articles to accept new ones seamlessly.
    */
-  public async getArticle(idOrSlug: string): Promise<NewsItem | null> {
-    const entry = this.catalogIndex.entries[idOrSlug];
-    const targetSource = entry ? entry.storedIn : "both";
-
-    // 1. If static
-    if (targetSource === "static") {
-      const found = (staticNewsData as NewsItem[]).find(
-        (n) => n.slug === idOrSlug || String(n.id) === idOrSlug
-      );
-      return found || null;
-    }
-
-    // 2. Decide instance to query based on physical index and current bandwidth rotation
-    let preferredDb: "primary" | "mirror" = "primary";
-    if (targetSource === "mirror") {
-      preferredDb = "mirror";
-    } else if (targetSource === "primary") {
-      preferredDb = "primary";
-    } else {
-      // Stored in both -> use the one with available traffic quota
-      preferredDb = this.evaluateReadRouting() === "mirror" ? "mirror" : "primary";
-    }
+  public async executeStorageSobrescricao(
+    target: "primary" | "mirror",
+    articlesToPruneCount: number = 25
+  ): Promise<{ prunedCount: number; bytesFreed: number }> {
+    const fb = target === "primary" ? getPrimaryFirebase() : getMirrorFirebase();
+    if (!fb.isValid || !fb.db) return { prunedCount: 0, bytesFreed: 0 };
 
     try {
-      const fb = preferredDb === "primary" ? getPrimaryFirebase() : getMirrorFirebase();
-      if (!fb.isValid || !fb.db) throw new Error("Database not connected");
+      // 1. Identify oldest entries sorted chronologically
+      const entries = Object.entries(this.catalogIndex.entries).sort((a, b) => {
+        const timeA = new Date(a[1].pubDate || 0).getTime();
+        const timeB = new Date(b[1].pubDate || 0).getTime();
+        return timeA - timeB; // Ascending: oldest first
+      });
 
-      const cleanKey = String(idOrSlug).replace(/[\.\#\$\[\]\/]/g, "_");
-      const snap = await get(ref(fb.db, `news/${cleanKey}`));
+      const toPrune = entries.slice(0, articlesToPruneCount);
+      let bytesFreed = 0;
 
-      if (snap.exists()) {
-        const item = snap.val() as NewsItem;
-        const estBytes = new Blob([JSON.stringify(item)]).size;
-        this.recordReadBandwidth(preferredDb, estBytes, false);
-        return item;
+      for (const [key, entry] of toPrune) {
+        try {
+          const cleanKey = String(entry.id || entry.slug || key).replace(/[\.\#\$\[\]\/]/g, "_");
+          await remove(ref(fb.db, `news/${cleanKey}`));
+          bytesFreed += entry.sizeBytes || 5000;
+          delete this.catalogIndex.entries[key];
+        } catch {}
       }
-    } catch (e) {
-      console.warn(`[Index Query] Fail reading article from ${preferredDb}, checking fallback...`, e);
-      this.recordReadBandwidth(preferredDb, 256, true);
-    }
 
-    // Fallback: search in static collection
-    const staticItem = (staticNewsData as NewsItem[]).find(
-      (n) => n.slug === idOrSlug || String(n.id) === idOrSlug
-    );
-    return staticItem || null;
+      const prunedCount = toPrune.length;
+      if (target === "primary") {
+        this.primaryStorage.bytesUsed = Math.max(0, this.primaryStorage.bytesUsed - bytesFreed);
+        this.primaryStorage.articleCount = Math.max(0, this.primaryStorage.articleCount - prunedCount);
+        this.catalogIndex.primaryStorageBytes = this.primaryStorage.bytesUsed;
+        this.catalogIndex.primaryCount = this.primaryStorage.articleCount;
+      } else {
+        this.mirrorStorage.bytesUsed = Math.max(0, this.mirrorStorage.bytesUsed - bytesFreed);
+        this.mirrorStorage.articleCount = Math.max(0, this.mirrorStorage.articleCount - prunedCount);
+        this.catalogIndex.mirrorStorageBytes = this.mirrorStorage.bytesUsed;
+        this.catalogIndex.mirrorCount = this.mirrorStorage.articleCount;
+      }
+
+      this.sobrescricao.storageSobrescricaoCount++;
+      this.sobrescricao.prunedArticlesCount += prunedCount;
+      this.sobrescricao.lastSobrescricaoAt = new Date().toISOString();
+      this.savePersistedData();
+
+      return { prunedCount, bytesFreed };
+    } catch (e) {
+      console.error("Sobrescrição error:", e);
+      return { prunedCount: 0, bytesFreed: 0 };
+    }
   }
 
   /**
-   * Hybrid News Fetch:
-   * 1. Query active instance based on 9.5GB monthly bandwidth rotation
-   * 2. Ingest dynamic news and update index entries
-   * 3. Merge seamlessly with static fallback (Zero news lost)
+   * Fetches news directly from Firebase Realtime Database
+   * Exclusively queries RTDB (Primary or Mirror) without static JSON!
    */
   public async fetchNews(): Promise<{ news: NewsItem[]; sourceUsed: TrafficSource }> {
     const currentSource = this.evaluateReadRouting();
 
-    if (currentSource === "static") {
-      return { news: staticNewsData as NewsItem[], sourceUsed: "static" };
-    }
-
+    // 1. Try Firebase Web SDK from active instance
     try {
       const fbInstance = currentSource === "primary" ? getPrimaryFirebase() : getMirrorFirebase();
-      if (!fbInstance.isValid || !fbInstance.db) {
-        if (currentSource === "primary") {
-          const mirror = getMirrorFirebase();
-          if (mirror.isValid && mirror.db) {
-            this.activeReadSource = "mirror";
-            return this.fetchNews();
+      if (fbInstance.isValid && fbInstance.db) {
+        const dbRef = ref(fbInstance.db);
+        const snapshot = await get(child(dbRef, "news"));
+
+        if (snapshot.exists()) {
+          const val = snapshot.val();
+          const items: NewsItem[] = Array.isArray(val)
+            ? val.filter(Boolean)
+            : typeof val === "object" && val !== null
+            ? Object.values(val)
+            : [];
+
+          if (items.length > 0) {
+            const payloadBytes = new Blob([JSON.stringify(val)]).size;
+            this.recordReadBandwidth(currentSource, payloadBytes, false);
+            this.inMemoryNewsCache = items;
+            try {
+              sessionStorage.setItem(CACHE_NEWS_KEY, JSON.stringify(items.slice(0, 100)));
+            } catch {}
+            return { news: items, sourceUsed: currentSource };
           }
         }
-        return { news: staticNewsData as NewsItem[], sourceUsed: "static" };
-      }
-
-      const dbRef = ref(fbInstance.db);
-      const snapshot = await get(child(dbRef, "news"));
-
-      if (snapshot.exists()) {
-        const val = snapshot.val();
-        const firebaseNewsArray: NewsItem[] = Array.isArray(val)
-          ? val
-          : typeof val === "object" && val !== null
-          ? Object.values(val)
-          : [];
-
-        const payloadBytes = new Blob([JSON.stringify(val)]).size;
-        this.recordReadBandwidth(currentSource, payloadBytes, false);
-
-        // Update lightweight catalog index
-        for (const item of firebaseNewsArray) {
-          const key = String(item.slug || item.id || item.link);
-          const itemSize = new Blob([JSON.stringify(item)]).size;
-          if (!this.catalogIndex.entries[key]) {
-            this.catalogIndex.entries[key] = {
-              id: item.id,
-              slug: item.slug || "",
-              title: item.title,
-              category: item.category || "Notícias",
-              pubDate: item.pubDate || new Date().toISOString(),
-              storedIn: currentSource,
-              sizeBytes: itemSize,
-              lastVerified: new Date().toISOString(),
-            };
-          } else {
-            const existing = this.catalogIndex.entries[key].storedIn;
-            if (existing !== currentSource && existing !== "both") {
-              this.catalogIndex.entries[key].storedIn = "both";
-            }
-          }
-        }
-        this.catalogIndex.totalArticles = Object.keys(this.catalogIndex.entries).length;
-        this.savePersistedData();
-
-        // Merge with static fallback ensuring complete article catalog
-        const combined = this.mergeAndDeduplicate(firebaseNewsArray, staticNewsData as NewsItem[]);
-        return { news: combined, sourceUsed: currentSource };
-      } else {
-        this.recordReadBandwidth(currentSource, 512, false);
-        return { news: staticNewsData as NewsItem[], sourceUsed: "static" };
       }
     } catch (err: any) {
-      console.warn(`[Traffic Router] Erro lendo ${currentSource}:`, err?.message || err);
+      console.warn(`[RTDB Fetch] Erro via Web SDK (${currentSource}):`, err?.message || err);
       this.recordReadBandwidth(currentSource, 256, true);
+    }
 
-      // Failover to secondary
-      if (currentSource === "primary") {
-        const mirror = getMirrorFirebase();
-        if (mirror.isValid && this.mirrorTraffic.bytesUsed < NINE_POINT_FIVE_GB_IN_BYTES) {
-          this.activeReadSource = "mirror";
-          return this.fetchNews();
+    // 2. Direct REST Fetch to Realtime Database endpoint
+    try {
+      const rtdbUrl =
+        currentSource === "mirror" && mirrorConfig.databaseURL
+          ? `${mirrorConfig.databaseURL}/news.json`
+          : "https://legal-norm2-default-rtdb.firebaseio.com/news.json";
+
+      const res = await fetch(rtdbUrl);
+      if (res.ok) {
+        const val = await res.json();
+        if (val) {
+          const items: NewsItem[] = Array.isArray(val)
+            ? val.filter(Boolean)
+            : typeof val === "object" && val !== null
+            ? Object.values(val)
+            : [];
+
+          if (items.length > 0) {
+            const size = new Blob([JSON.stringify(val)]).size;
+            this.recordReadBandwidth(currentSource, size, false);
+            this.inMemoryNewsCache = items;
+            return { news: items, sourceUsed: currentSource };
+          }
         }
       }
-
-      return { news: staticNewsData as NewsItem[], sourceUsed: "static" };
+    } catch (err) {
+      console.warn(`[RTDB Fetch] REST fallback failed:`, err);
     }
+
+    // 3. Fallback to Server Proxy (/api/news?all=true) which pulls from RTDB
+    try {
+      const serverRes = await fetch("/api/news?all=true");
+      if (serverRes.ok) {
+        const json = await serverRes.json();
+        const items = json.data || json;
+        if (Array.isArray(items) && items.length > 0) {
+          this.inMemoryNewsCache = items;
+          return { news: items, sourceUsed: "api" };
+        }
+      }
+    } catch {}
+
+    // Return in-memory cache if available
+    return { news: this.inMemoryNewsCache, sourceUsed: currentSource };
   }
 
   /**
-   * Saves and mirrors articles enforcing Storage Space Rotation (950MB)
-   * 1. If Banco 1 has space (<950MB), writes to Banco 1.
-   * 2. When Banco 1 approaches 950MB, writes automatically go to Banco 2.
-   * 3. Updates the lightweight index to track which bank holds each article.
-   * 4. NEVER deletes or overwrites existing content.
+   * Mirror & Sync to Firebase Realtime Database with Sobrescrição enforcement
    */
   public async mirrorNewsToFirebase(
     articles: NewsItem[],
@@ -553,7 +703,7 @@ class FirebaseTrafficRouter {
   ): Promise<{
     success: boolean;
     syncedCount: number;
-    targetUsed: "primary" | "mirror" | "both" | "warning_full";
+    targetUsed: "primary" | "mirror" | "both";
     warning?: string;
   }> {
     const primaryFb = getPrimaryFirebase();
@@ -574,28 +724,26 @@ class FirebaseTrafficRouter {
 
     const writeTarget = this.evaluateWriteTarget();
 
-    if (writeTarget === "warning_both_full") {
-      const warnMsg =
-        "⚠️ Capacidade Máxima Atingida: Ambos os projetos Firebase atingiram o limite de segurança de 950MB (total ~1900MB). O acervo existente foi integralmente preservado.";
-      return {
-        success: false,
-        syncedCount: 0,
-        targetUsed: "warning_full",
-        warning: warnMsg,
-      };
+    // If both databases are near capacity (~1.9 GB total), execute Sobrescrição!
+    if (writeTarget === "sobrescricao_both_active") {
+      if (onProgress) {
+        onProgress(30, "Capacidade próxima de 1,9 GB: Executando sobrescrição automática dos registros mais antigos...");
+      }
+      await this.executeStorageSobrescricao("primary", 30);
+      await this.executeStorageSobrescricao("mirror", 30);
     }
 
     let targetSuccess: "primary" | "mirror" | "both" = "primary";
 
-    // Scenario A: Write to Primary (Storage < 950MB)
-    if (writeTarget === "primary" && primaryFb.isValid && primaryFb.db) {
-      if (onProgress) onProgress(40, "Gravando no Banco 1 (legal-norm2)...");
+    // Write to Primary
+    if ((writeTarget === "primary" || writeTarget === "sobrescricao_both_active") && primaryFb.isValid && primaryFb.db) {
+      if (onProgress) onProgress(50, "Gravando no Banco 1 (legal-norm2)...");
       try {
         await set(ref(primaryFb.db, "news"), payload);
         this.recordWriteStorage("primary", totalBatchBytes, articles.length);
 
-        // Also mirror to secondary if mirror has free space
-        if (mirrorFb.isValid && mirrorFb.db && !this.mirrorStorage.isNearLimit) {
+        // Also mirror to secondary
+        if (mirrorFb.isValid && mirrorFb.db) {
           if (onProgress) onProgress(80, "Espelhando no Banco 2 (legal-norm3)...");
           try {
             await set(ref(mirrorFb.db, "news"), payload);
@@ -605,54 +753,20 @@ class FirebaseTrafficRouter {
         }
       } catch (err: any) {
         console.error("Erro gravando no Banco 1:", err);
-        // Failover write to Banco 2
         if (mirrorFb.isValid && mirrorFb.db) {
           await set(ref(mirrorFb.db, "news"), payload);
           this.recordWriteStorage("mirror", totalBatchBytes, articles.length);
           targetSuccess = "mirror";
         }
       }
-    }
-    // Scenario B: Primary is near 950MB -> Direct writes straight to Banco 2!
-    else if (writeTarget === "mirror" && mirrorFb.isValid && mirrorFb.db) {
-      if (onProgress)
-        onProgress(50, "Banco 1 próximo de 950MB. Direcionando gravação para Banco 2 (legal-norm3)...");
+    } else if (mirrorFb.isValid && mirrorFb.db) {
+      if (onProgress) onProgress(60, "Direcionando gravação para Banco 2 (legal-norm3)...");
       await set(ref(mirrorFb.db, "news"), payload);
       this.recordWriteStorage("mirror", totalBatchBytes, articles.length);
       targetSuccess = "mirror";
     }
 
-    // Update index entries with target location
-    articles.forEach((item) => {
-      const key = String(item.slug || item.id || item.link);
-      const estSize = new Blob([JSON.stringify(item)]).size;
-      this.catalogIndex.entries[key] = {
-        id: item.id,
-        slug: item.slug || "",
-        title: item.title,
-        category: item.category || "Notícias",
-        pubDate: item.pubDate || new Date().toISOString(),
-        storedIn: targetSuccess,
-        sizeBytes: estSize,
-        lastVerified: new Date().toISOString(),
-      };
-    });
-    this.catalogIndex.totalArticles = Object.keys(this.catalogIndex.entries).length;
-
-    // Sync index to RTDB for auxiliary inspection
-    try {
-      const activeFb = targetSuccess === "mirror" ? mirrorFb : primaryFb;
-      if (activeFb.isValid && activeFb.db) {
-        await set(ref(activeFb.db, "news_catalog_summary"), {
-          totalArticles: this.catalogIndex.totalArticles,
-          primaryStorageBytes: this.primaryStorage.bytesUsed,
-          mirrorStorageBytes: this.mirrorStorage.bytesUsed,
-          updatedAt: new Date().toISOString(),
-        });
-      }
-    } catch {}
-
-    if (onProgress) onProgress(100, "Sincronização e indexação finalizadas com sucesso!");
+    if (onProgress) onProgress(100, "Sincronização e indexação concluídas com sucesso!");
     this.savePersistedData();
 
     return {
@@ -663,6 +777,10 @@ class FirebaseTrafficRouter {
   }
 
   public async logMetricEvent(type: string, data: Record<string, any>) {
+    // If traffic sobrescrição is active, avoid heavy writes to preserve bandwidth
+    if (this.sobrescricao.isTrafficSobrescricaoActive && Math.random() > 0.1) {
+      return;
+    }
     try {
       const fb = getPrimaryFirebase();
       if (!fb.isValid || !fb.db) return;
@@ -677,55 +795,27 @@ class FirebaseTrafficRouter {
     } catch {}
   }
 
-  private mergeAndDeduplicate(primaryList: NewsItem[], fallbackList: NewsItem[]): NewsItem[] {
-    const seen = new Set<string>();
-    const merged: NewsItem[] = [];
-
-    for (const item of primaryList) {
-      const key = String(item.slug || item.id || item.link || item.title);
-      if (key && !seen.has(key)) {
-        seen.add(key);
-        merged.push(item);
-      }
-    }
-
-    for (const item of fallbackList) {
-      const key = String(item.slug || item.id || item.link || item.title);
-      if (key && !seen.has(key)) {
-        seen.add(key);
-        merged.push(item);
-      }
-    }
-
-    merged.sort((a, b) => {
-      const timeA = new Date(a.pubDate || 0).getTime();
-      const timeB = new Date(b.pubDate || 0).getTime();
-      return timeB - timeA;
-    });
-
-    return merged;
-  }
-
   public getCatalogIndex(): NewsCatalogIndex {
     return { ...this.catalogIndex };
   }
 
   public getState(): TrafficRouterState {
     const bothFull =
-      this.primaryStorage.bytesUsed >= NINE_FIFTY_MB_IN_BYTES &&
-      this.mirrorStorage.bytesUsed >= NINE_FIFTY_MB_IN_BYTES;
+      this.primaryStorage.bytesUsed >= PER_DB_STORAGE_THRESHOLD &&
+      this.mirrorStorage.bytesUsed >= PER_DB_STORAGE_THRESHOLD;
 
     return {
       activeReadSource: this.activeReadSource,
-      activeWriteTarget: bothFull ? "warning_both_full" : this.evaluateWriteTarget(),
+      activeWriteTarget: bothFull ? "sobrescricao_both_active" : this.evaluateWriteTarget(),
       bothStorageNearLimit: bothFull,
       primaryTraffic: { ...this.primaryTraffic },
       mirrorTraffic: { ...this.mirrorTraffic },
       primaryStorage: { ...this.primaryStorage },
       mirrorStorage: { ...this.mirrorStorage },
+      sobrescricao: { ...this.sobrescricao },
       isPrimaryConfigured: isConfigValid(primaryConfig),
       isMirrorConfigured: isConfigValid(mirrorConfig),
-      totalArticlesCount: Math.max(staticNewsData.length, this.catalogIndex.totalArticles),
+      totalArticlesCount: this.catalogIndex.totalArticles,
       indexEntriesCount: Object.keys(this.catalogIndex.entries).length,
       lastSyncTime: this.primaryTraffic.lastActive || this.mirrorTraffic.lastActive,
       mode: this.isManualOverride ? "manual" : "automatic",

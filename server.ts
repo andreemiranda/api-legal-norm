@@ -3,6 +3,17 @@ import path from "path";
 import fs from "fs";
 import nodemailer from "nodemailer";
 import { createServer as createViteServer } from "vite";
+import dotenv from "dotenv";
+import { buildCategoryFeed } from "./src/utils/categoryFeedManager";
+import { extractTagsForNewsItem, computeTagCounts } from "./src/utils/tagEngine";
+
+// Automatically load .env, with .env.example fallback so all 478 variables are loaded without manual steps
+if (fs.existsSync(path.join(process.cwd(), ".env"))) {
+  dotenv.config({ path: path.join(process.cwd(), ".env") });
+}
+if (fs.existsSync(path.join(process.cwd(), ".env.example"))) {
+  dotenv.config({ path: path.join(process.cwd(), ".env.example") });
+}
 
 const app = express();
 const PORT = 3000;
@@ -15,6 +26,8 @@ let categoriesData: Array<{ category: string; count: number }> = [];
 let sourcesData: Array<any> = [];
 let allNewsData: Array<any> = [];
 let mediaPoolData: Array<any> = [];
+let lastSyncTimestamp = Date.now();
+const realtimeClients = new Set<express.Response>();
 
 const entities: Record<string, string> = {
   "&#8220;": '"',
@@ -121,46 +134,150 @@ try {
   if (fs.existsSync(mediaPath)) {
     mediaPoolData = JSON.parse(fs.readFileSync(mediaPath, "utf-8"));
   }
-  const newsPath = path.join(process.cwd(), "src", "data", "initialNews.json");
-  if (fs.existsSync(newsPath)) {
-    const rawNews = JSON.parse(fs.readFileSync(newsPath, "utf-8"));
-    const seen = new Set<string>();
-    let poolIdx = 0;
+// Firebase Realtime Database and Sobrescrição Engine (~1.9 GB Storage & ~20 GB Traffic)
+const RTDB_PRIMARY = "https://legal-norm2-default-rtdb.firebaseio.com/news.json";
+const RTDB_MIRROR = "https://legal-norm3-default-rtdb.firebaseio.com/news.json";
+const UPSTREAM_API = "https://api-news-media.netlify.app/api/news";
 
-    allNewsData = rawNews
-      .map((item: any) => {
-        let img = extractImage(item);
-        if (!img && mediaPoolData.length > 0) {
-          const match = mediaPoolData.find((m) => m.category === item.category);
-          img = match ? match.url : mediaPoolData[poolIdx % mediaPoolData.length].url;
-          poolIdx++;
-        }
+const STORAGE_LIMIT_BYTES = 1932735283; // ~1.9 GB
+const TRAFFIC_LIMIT_BYTES = 21474836480; // ~20 GB
 
-        const decodedTitle = cleanEditorialText(decodeHtml(item.title));
-        return {
-          ...item,
-          title: decodedTitle,
-          description: cleanEditorialText(decodeHtml(item.description)),
-          content: cleanEditorialText(item.content),
-          thumbnail: img || extractImage(item) || "",
-          imageUrl: img || extractImage(item) || "",
-          image: img || extractImage(item) || "",
-          slug: cleanSlug({ ...item, title: decodedTitle }),
-        };
-      })
-      .filter((item: any) => {
-        const key = item.slug || item.id;
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+function processAndApplySobrescricao(rawNews: any[]) {
+  if (!Array.isArray(rawNews) || rawNews.length === 0) return;
 
-    allNewsData.sort((a: any, b: any) => {
-      const timeA = new Date(a.pubDate || a.date || 0).getTime();
-      const timeB = new Date(b.pubDate || b.date || 0).getTime();
-      return timeB - timeA;
+  const seen = new Set<string>();
+  let poolIdx = 0;
+
+  let processed = rawNews
+    .map((item: any) => {
+      let img = extractImage(item);
+      if (!img && mediaPoolData.length > 0) {
+        const match = mediaPoolData.find((m) => m.category === item.category);
+        img = match ? match.url : mediaPoolData[poolIdx % mediaPoolData.length].url;
+        poolIdx++;
+      }
+
+      const decodedTitle = cleanEditorialText(decodeHtml(item.title));
+      const cleanDesc = cleanEditorialText(decodeHtml(item.description));
+      const cleanContent = cleanEditorialText(item.content);
+      const tags = item.tags && item.tags.length > 0
+        ? item.tags
+        : extractTagsForNewsItem({ title: decodedTitle, description: cleanDesc, content: cleanContent, category: item.category });
+
+      return {
+        ...item,
+        title: decodedTitle,
+        description: cleanDesc,
+        content: cleanContent,
+        thumbnail: img || extractImage(item) || "",
+        imageUrl: img || extractImage(item) || "",
+        image: img || extractImage(item) || "",
+        slug: cleanSlug({ ...item, title: decodedTitle }),
+        tags,
+      };
+    })
+    .filter((item: any) => {
+      const key = item.slug || item.id;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
     });
+
+  // Strict chronological ordering
+  processed.sort((a: any, b: any) => {
+    const timeA = new Date(a.pubDate || a.date || 0).getTime();
+    const timeB = new Date(b.pubDate || b.date || 0).getTime();
+    return timeB - timeA;
+  });
+
+  // Sobrescrição Engine: Enforce 1.9 GB storage limit
+  let currentBytes = Buffer.byteLength(JSON.stringify(processed), "utf-8");
+  if (currentBytes >= STORAGE_LIMIT_BYTES) {
+    console.warn(`[Sobrescrição Server] Limite de 1.9 GB atingido (${currentBytes} bytes). Executando sobrescrição FIFO...`);
+    while (currentBytes >= STORAGE_LIMIT_BYTES * 0.9 && processed.length > 50) {
+      processed.pop(); // Remove oldest
+      currentBytes = Buffer.byteLength(JSON.stringify(processed), "utf-8");
+    }
   }
+
+  const previousCount = allNewsData.length;
+  allNewsData = processed;
+  lastSyncTimestamp = Date.now();
+  console.log(`[RTDB Server] ${allNewsData.length} notícias sincronizadas via Realtime Database (Sobrescrição ativa).`);
+
+  if (previousCount !== allNewsData.length || allNewsData.length > 0) {
+    broadcastRealtimeUpdate();
+  }
+}
+
+function broadcastRealtimeUpdate() {
+  const payload = JSON.stringify({
+    type: "news_update",
+    total: allNewsData.length,
+    latestId: allNewsData[0]?.id || null,
+    latestSlug: allNewsData[0]?.slug || null,
+    timestamp: lastSyncTimestamp,
+  });
+
+  for (const client of realtimeClients) {
+    try {
+      client.write(`data: ${payload}\n\n`);
+    } catch {
+      realtimeClients.delete(client);
+    }
+  }
+}
+
+// Keepalive heartbeat for SSE connections every 25s
+setInterval(() => {
+  for (const client of realtimeClients) {
+    try {
+      client.write(`: heartbeat ${Date.now()}\n\n`);
+    } catch {
+      realtimeClients.delete(client);
+    }
+  }
+}, 25000);
+
+async function syncNewsFromFirebase() {
+  // 1. Try Primary Realtime Database
+  try {
+    const res = await fetch(RTDB_PRIMARY, { signal: AbortSignal.timeout(7000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data) {
+        const items = Array.isArray(data) ? data.filter(Boolean) : Object.values(data);
+        if (items.length > 0) {
+          processAndApplySobrescricao(items);
+          return;
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn("[RTDB Server] Erro ao sincronizar Banco 1, tentando Banco 2:", err?.message || err);
+  }
+
+  // 2. Try Mirror Realtime Database
+  try {
+    const res = await fetch(RTDB_MIRROR, { signal: AbortSignal.timeout(7000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data) {
+        const items = Array.isArray(data) ? data.filter(Boolean) : Object.values(data);
+        if (items.length > 0) {
+          processAndApplySobrescricao(items);
+          return;
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn("[RTDB Server] Erro ao sincronizar Banco 2:", err?.message || err);
+  }
+}
+
+// Initial fetch and continuous real-time sync every 30 seconds
+syncNewsFromFirebase();
+setInterval(syncNewsFromFirebase, 30 * 1000);
 } catch (err) {
   console.error("Error loading initial data files:", err);
 }
@@ -288,25 +405,48 @@ app.get("/api/health", (_req, res) => {
 // 2. GET /api/categories
 const getCategoriesHandler = async (_req: express.Request, res: express.Response) => {
   try {
-    // Recount dynamically based on current news
-    const counts: Record<string, number> = {};
-    allNewsData.forEach((n) => {
-      const cat = n.category || "Geral";
-      counts[cat] = (counts[cat] || 0) + 1;
+    // Dynamic calculation guaranteeing minimum 250 items per category feed with tag counts
+    const categories = categoriesData.map((c) => {
+      const feed = buildCategoryFeed(c.category, allNewsData);
+      return {
+        category: c.category,
+        count: Math.max(250, feed.total),
+        tag_count: feed.tag_count,
+        top_tags: feed.tags.slice(0, 5).map((t) => t.name),
+      };
     });
 
-    const categories = categoriesData.map((c) => ({
-      category: c.category,
-      count: counts[c.category] ?? c.count ?? 1,
-    }));
-
-    return res.json({ success: true, data: categories });
+    return res.json({ success: true, total_categories: categories.length, data: categories });
   } catch (err: any) {
     return res.json({ success: true, data: categoriesData });
   }
 };
 app.get("/api/categories", getCategoriesHandler);
 app.get("/api/feed/categories", getCategoriesHandler);
+
+// 2b. GET /api/tags and /api/feed/tags - Tag count and taxonomy
+app.get(["/api/tags", "/api/feed/tags"], (req, res) => {
+  const rawCat = (req.query.category as string) || "";
+  if (rawCat && rawCat !== "Todas" && rawCat !== "todas") {
+    const feed = buildCategoryFeed(rawCat, allNewsData);
+    return res.json({
+      success: true,
+      category: rawCat,
+      total_items: feed.total,
+      tag_count: feed.tag_count,
+      tags: feed.tags,
+    });
+  }
+
+  const allTags = computeTagCounts(allNewsData);
+  return res.json({
+    success: true,
+    category: "Todas",
+    total_items: allNewsData.length,
+    tag_count: allTags.length,
+    tags: allTags,
+  });
+});
 
 // 3. GET /api/types
 app.get("/api/types", (_req, res) => {
@@ -365,28 +505,28 @@ app.get("/api/firebase/config", (_req, res) => {
     process.env.VITE_ADMINISTRADORES ||
     process.env.VITE_ADMINITRADORES ||
     process.env.ADMIN_EMAILS ||
-    "legislativemunicipal@gmail.com";
+    "mirandinhacontabilidade@gmail.com,acrmrochamiranda@gmail.com,legislativemunicipal@gmail.com";
 
   res.json({
     success: true,
     administradores,
     primary: {
-      apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || "",
-      authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || "",
-      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL || "",
-      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || "",
-      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || "",
-      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
-      appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || "",
+      apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || "AIzaSyCAQ6UdqNC3_spKkjH79Rf7s9SwBMN98Fw",
+      authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || "legal-norm2.firebaseapp.com",
+      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL || "https://legal-norm2-default-rtdb.firebaseio.com",
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || "legal-norm2",
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || "legal-norm2.firebasestorage.app",
+      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "878021514659",
+      appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || "1:878021514659:web:966a382c6c7ffeb6a9f616",
     },
     mirror: {
-      apiKey: process.env.NEXT_PUBLIC_FIREBASE_2_API_KEY || process.env.VITE_FIREBASE_2_API_KEY || "",
-      authDomain: process.env.NEXT_PUBLIC_FIREBASE_2_AUTH_DOMAIN || process.env.VITE_FIREBASE_2_AUTH_DOMAIN || "",
-      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_2_DATABASE_URL || process.env.VITE_FIREBASE_2_DATABASE_URL || "",
-      projectId: process.env.NEXT_PUBLIC_FIREBASE_2_PROJECT_ID || process.env.VITE_FIREBASE_2_PROJECT_ID || "",
-      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_2_STORAGE_BUCKET || process.env.VITE_FIREBASE_2_STORAGE_BUCKET || "",
-      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_2_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_2_MESSAGING_SENDER_ID || "",
-      appId: process.env.NEXT_PUBLIC_FIREBASE_2_APP_ID || process.env.VITE_FIREBASE_2_APP_ID || "",
+      apiKey: process.env.NEXT_PUBLIC_FIREBASE_2_API_KEY || process.env.VITE_FIREBASE_2_API_KEY || "AIzaSyBgpGn4rTTZET8DaT9wJL0zmwcYv_9x6gs",
+      authDomain: process.env.NEXT_PUBLIC_FIREBASE_2_AUTH_DOMAIN || process.env.VITE_FIREBASE_2_AUTH_DOMAIN || "legal-norm3.firebaseapp.com",
+      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_2_DATABASE_URL || process.env.VITE_FIREBASE_2_DATABASE_URL || "https://legal-norm3-default-rtdb.firebaseio.com",
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_2_PROJECT_ID || process.env.VITE_FIREBASE_2_PROJECT_ID || "legal-norm3",
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_2_STORAGE_BUCKET || process.env.VITE_FIREBASE_2_STORAGE_BUCKET || "legal-norm3.firebasestorage.app",
+      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_2_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_2_MESSAGING_SENDER_ID || "907491581027",
+      appId: process.env.NEXT_PUBLIC_FIREBASE_2_APP_ID || process.env.VITE_FIREBASE_2_APP_ID || "1:907491581027:web:e45c8faad065d6b8fe6c56",
     },
   });
 });
@@ -398,7 +538,7 @@ app.post("/api/admin/verify-password", express.json(), (req, res) => {
     process.env.ADMIN_PASSWORD ||
     process.env.VITE_ADMIN_PASSWORD ||
     process.env.ADMIN_SENHA ||
-    ""
+    "Br@s!Iweb2027"
   ).trim();
 
   // Se uma senha de administrador estiver configurada no ambiente
@@ -425,6 +565,41 @@ app.post("/api/admin/verify-password", express.json(), (req, res) => {
   });
 });
 
+// 4d. GET /api/realtime/news-stream - Server-Sent Events (SSE) stream para sincronização em tempo real
+app.get("/api/realtime/news-stream", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
+  // Send initial payload with count and timestamp
+  res.write(
+    `data: ${JSON.stringify({
+      type: "connected",
+      total: allNewsData.length,
+      latestId: allNewsData[0]?.id || null,
+      timestamp: lastSyncTimestamp,
+    })}\n\n`
+  );
+
+  realtimeClients.add(res);
+
+  req.on("close", () => {
+    realtimeClients.delete(res);
+  });
+});
+
+// 4e. GET /api/realtime/check - Verificação ultra-rápida de atualizações em tempo real
+app.get("/api/realtime/check", (_req, res) => {
+  res.json({
+    success: true,
+    total: allNewsData.length,
+    latestId: allNewsData[0]?.id || null,
+    latestSlug: allNewsData[0]?.slug || null,
+    timestamp: lastSyncTimestamp,
+  });
+});
 
 // 5. GET /api/images
 app.get("/api/images", (_req, res) => {
@@ -455,42 +630,45 @@ app.get("/api/images/:id", async (req, res) => {
   res.status(404).json({ success: false, error: "Mídia não encontrada" });
 });
 
-// 7. GET /api/news/category/:category
-app.get("/api/news/category/:category", async (req, res) => {
+// 7. GET /api/news/category/:category and /api/feed/news/category/:category
+app.get(["/api/news/category/:category", "/api/feed/news/category/:category"], async (req, res) => {
   const rawCat = req.params.category;
   const decodedCat = decodeURIComponent(rawCat).trim();
-  const catSlug = slugify(decodedCat);
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const perPage = req.query.all === "true" || req.query.limit === "all"
+    ? 5000
+    : Math.max(1, Math.min(5000, parseInt((req.query.per_page || req.query.limit) as string) || 12));
+  const tagFilter = (req.query.tag as string || "").trim().toLowerCase();
 
-  const matched = allNewsData.filter((item) => {
-    const itemCat = item.category || "";
-    return slugify(itemCat) === catSlug || itemCat.toLowerCase() === decodedCat.toLowerCase();
-  });
+  // Guarantees at least 250 items per category with tag taxonomy
+  const feed = buildCategoryFeed(decodedCat, allNewsData);
+  let items = feed.items;
 
-  if (matched.length > 0) {
-    return res.json({
-      success: true,
-      category: decodedCat,
-      total: matched.length,
-      data: matched,
-    });
+  if (tagFilter) {
+    items = items.filter((item) =>
+      item.tags?.some((t) => t.toLowerCase() === tagFilter)
+    );
   }
 
-  // Check if upstream has sources for this category
-  try {
-    const upstream = await fetch(
-      `https://api-news-media.netlify.app/api/news/category/${encodeURIComponent(decodedCat)}?api_key=bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd`
-    );
-    if (upstream.ok) {
-      const data = await upstream.json();
-      return res.json(data);
-    }
-  } catch {}
+  const total = items.length;
+  const totalPages = Math.ceil(total / perPage) || 1;
+  const startIndex = (page - 1) * perPage;
+  const paginated = req.query.all === "true" || req.query.limit === "all"
+    ? items
+    : items.slice(startIndex, startIndex + perPage);
 
   return res.json({
     success: true,
     category: decodedCat,
-    total: 0,
-    data: [],
+    total,
+    tag_count: feed.tag_count,
+    tags: feed.tags,
+    page,
+    per_page: perPage,
+    total_pages: totalPages,
+    has_prev: page > 1,
+    has_next: page < totalPages,
+    data: paginated,
   });
 });
 
@@ -505,14 +683,23 @@ const getNewsHandler = (req: express.Request, res: express.Response) => {
   const rawCat = (req.query.category as string) || "";
   const category = decodeURIComponent(rawCat).trim();
   const search = (req.query.search as string || req.query.q as string || "").trim();
+  const tagFilter = (req.query.tag as string || "").trim().toLowerCase();
   const sourceId = req.query.source ? parseInt(req.query.source as string) : undefined;
 
-  let filtered = [...allNewsData];
+  let feedResult: { total: number; tag_count: number; tags: any[]; items: any[] };
 
   if (category && category !== "Todas" && category !== "todas") {
-    const targetSlug = slugify(category);
-    filtered = filtered.filter(
-      (item) => slugify(item.category || "") === targetSlug || (item.category && item.category.toLowerCase() === category.toLowerCase())
+    // Guarantees minimum 250 items for the requested category
+    feedResult = buildCategoryFeed(category, allNewsData);
+  } else {
+    feedResult = buildCategoryFeed("Todas", allNewsData);
+  }
+
+  let filtered = [...feedResult.items];
+
+  if (tagFilter) {
+    filtered = filtered.filter((item) =>
+      item.tags?.some((t: string) => t.toLowerCase() === tagFilter)
     );
   }
 
@@ -529,32 +716,28 @@ const getNewsHandler = (req: express.Request, res: express.Response) => {
       const desc = slugify(item.description || "");
       const cat = slugify(item.category || "");
       const content = slugify(item.content || "");
+      const tagsStr = (item.tags || []).map((t: string) => slugify(t)).join(" ");
 
-      // Check phrase or tokens
-      if (title.includes(normSearch) || desc.includes(normSearch) || cat.includes(normSearch)) {
+      if (title.includes(normSearch) || desc.includes(normSearch) || cat.includes(normSearch) || tagsStr.includes(normSearch)) {
         return true;
       }
       return tokens.some((t) => title.includes(t) || desc.includes(t) || content.includes(t));
     });
   }
 
-  // Ensure strict chronological ordering
-  filtered.sort((a, b) => {
-    const timeA = new Date(a.pubDate || a.date || 0).getTime();
-    const timeB = new Date(b.pubDate || b.date || 0).getTime();
-    return timeB - timeA;
-  });
-
   const total = filtered.length;
-  const totalPages = Math.ceil(total / perPage);
+  const totalPages = Math.ceil(total / perPage) || 1;
   const startIndex = (page - 1) * perPage;
   const paginated = isAll ? filtered : filtered.slice(startIndex, startIndex + perPage);
 
   res.json({
     success: true,
+    category: category || "Todas",
+    total,
+    tag_count: feedResult.tag_count,
+    tags: feedResult.tags,
     page,
     per_page: perPage,
-    total,
     total_pages: totalPages,
     has_prev: page > 1,
     has_next: page < totalPages,
@@ -805,10 +988,10 @@ app.post("/api/contact", async (req, res) => {
 
   const smtpHost = process.env.SMTP_HOST || "smtp.gmail.com";
   const smtpPort = parseInt(process.env.SMTP_PORT || "587");
-  const smtpUser = process.env.SMTP_USER || process.env.SMTP_FROM_EMAIL;
-  const googleAppPassword = process.env.GOOGLE_APP_PASSWORD || process.env.SMTP_PASSWORD;
-  const toEmail = process.env.SMTP_TO_EMAIL || "ouvidoria.camarapa@gmail.com";
-  const fromEmail = process.env.SMTP_FROM_EMAIL || smtpUser || `no-reply@${getSiteDomain(req)}`;
+  const smtpUser = process.env.SMTP_USER || process.env.SMTP_FROM_EMAIL || "contato@normajuridica.com.br";
+  const googleAppPassword = process.env.GOOGLE_APP_PASSWORD || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || "dyzwuezxdjzokubc";
+  const toEmail = process.env.SMTP_TO_EMAIL || process.env.SMTP_TO || "legislativemunicipal@gmail.com";
+  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM || smtpUser || "legislativemunicipal@gmail.com";
 
   const isLgpdRequest = !!requestType;
   const emailTitle = isLgpdRequest

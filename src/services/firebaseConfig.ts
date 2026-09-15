@@ -16,14 +16,14 @@ export interface FirebaseInstanceConfig {
   appId?: string;
 }
 
-// Read helper with multi-prefix fallback (NEXT_PUBLIC_ or VITE_)
-function getEnv(key: string, backupKey?: string): string {
+// Read helper with multi-prefix fallback (NEXT_PUBLIC_ or VITE_) and default fallback value
+function getEnv(key: string, backupKey?: string, fallback: string = ""): string {
   try {
     const meta = (import.meta as any).env || {};
     if (meta[key]) return meta[key];
     if (backupKey && meta[backupKey]) return meta[backupKey];
   } catch {}
-  return "";
+  return fallback;
 }
 
 // Check saved custom credentials in localStorage
@@ -40,26 +40,26 @@ function getSavedConfig(key: string): FirebaseInstanceConfig | null {
 const savedPrimary = getSavedConfig("nj_firebase_primary");
 const savedMirror = getSavedConfig("nj_firebase_mirror");
 
-// 1. Primary Firebase Project Config
+// 1. Primary Firebase Project Config (legal-norm2)
 export const primaryConfig: FirebaseInstanceConfig = {
-  apiKey: savedPrimary?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_API_KEY", "VITE_FIREBASE_API_KEY"),
-  authDomain: savedPrimary?.authDomain || getEnv("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN", "VITE_FIREBASE_AUTH_DOMAIN"),
-  databaseURL: savedPrimary?.databaseURL || getEnv("NEXT_PUBLIC_FIREBASE_DATABASE_URL", "VITE_FIREBASE_DATABASE_URL"),
-  projectId: savedPrimary?.projectId || getEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "VITE_FIREBASE_PROJECT_ID"),
-  storageBucket: savedPrimary?.storageBucket || getEnv("NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET", "VITE_FIREBASE_STORAGE_BUCKET"),
-  messagingSenderId: savedPrimary?.messagingSenderId || getEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", "VITE_FIREBASE_MESSAGING_SENDER_ID"),
-  appId: savedPrimary?.appId || getEnv("NEXT_PUBLIC_FIREBASE_APP_ID", "VITE_FIREBASE_APP_ID"),
+  apiKey: savedPrimary?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_API_KEY", "VITE_FIREBASE_API_KEY", "AIzaSyCAQ6UdqNC3_spKkjH79Rf7s9SwBMN98Fw"),
+  authDomain: savedPrimary?.authDomain || getEnv("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN", "VITE_FIREBASE_AUTH_DOMAIN", "legal-norm2.firebaseapp.com"),
+  databaseURL: savedPrimary?.databaseURL || getEnv("NEXT_PUBLIC_FIREBASE_DATABASE_URL", "VITE_FIREBASE_DATABASE_URL", "https://legal-norm2-default-rtdb.firebaseio.com"),
+  projectId: savedPrimary?.projectId || getEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "VITE_FIREBASE_PROJECT_ID", "legal-norm2"),
+  storageBucket: savedPrimary?.storageBucket || getEnv("NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET", "VITE_FIREBASE_STORAGE_BUCKET", "legal-norm2.firebasestorage.app"),
+  messagingSenderId: savedPrimary?.messagingSenderId || getEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", "VITE_FIREBASE_MESSAGING_SENDER_ID", "878021514659"),
+  appId: savedPrimary?.appId || getEnv("NEXT_PUBLIC_FIREBASE_APP_ID", "VITE_FIREBASE_APP_ID", "1:878021514659:web:966a382c6c7ffeb6a9f616"),
 };
 
-// 2. Secondary / Mirror Firebase Project Config (for 10GB quota rotation)
+// 2. Secondary / Mirror Firebase Project Config (legal-norm3)
 export const mirrorConfig: FirebaseInstanceConfig = {
-  apiKey: savedMirror?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_2_API_KEY", "VITE_FIREBASE_2_API_KEY"),
-  authDomain: savedMirror?.authDomain || getEnv("NEXT_PUBLIC_FIREBASE_2_AUTH_DOMAIN", "VITE_FIREBASE_2_AUTH_DOMAIN"),
-  databaseURL: savedMirror?.databaseURL || getEnv("NEXT_PUBLIC_FIREBASE_2_DATABASE_URL", "VITE_FIREBASE_2_DATABASE_URL"),
-  projectId: savedMirror?.projectId || getEnv("NEXT_PUBLIC_FIREBASE_2_PROJECT_ID", "VITE_FIREBASE_2_PROJECT_ID"),
-  storageBucket: savedMirror?.storageBucket || getEnv("NEXT_PUBLIC_FIREBASE_2_STORAGE_BUCKET", "VITE_FIREBASE_2_STORAGE_BUCKET"),
-  messagingSenderId: savedMirror?.messagingSenderId || getEnv("NEXT_PUBLIC_FIREBASE_2_MESSAGING_SENDER_ID", "VITE_FIREBASE_2_MESSAGING_SENDER_ID"),
-  appId: savedMirror?.appId || getEnv("NEXT_PUBLIC_FIREBASE_2_APP_ID", "VITE_FIREBASE_2_APP_ID"),
+  apiKey: savedMirror?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_2_API_KEY", "VITE_FIREBASE_2_API_KEY", "AIzaSyBgpGn4rTTZET8DaT9wJL0zmwcYv_9x6gs"),
+  authDomain: savedMirror?.authDomain || getEnv("NEXT_PUBLIC_FIREBASE_2_AUTH_DOMAIN", "VITE_FIREBASE_2_AUTH_DOMAIN", "legal-norm3.firebaseapp.com"),
+  databaseURL: savedMirror?.databaseURL || getEnv("NEXT_PUBLIC_FIREBASE_2_DATABASE_URL", "VITE_FIREBASE_2_DATABASE_URL", "https://legal-norm3-default-rtdb.firebaseio.com"),
+  projectId: savedMirror?.projectId || getEnv("NEXT_PUBLIC_FIREBASE_2_PROJECT_ID", "VITE_FIREBASE_2_PROJECT_ID", "legal-norm3"),
+  storageBucket: savedMirror?.storageBucket || getEnv("NEXT_PUBLIC_FIREBASE_2_STORAGE_BUCKET", "VITE_FIREBASE_2_STORAGE_BUCKET", "legal-norm3.firebasestorage.app"),
+  messagingSenderId: savedMirror?.messagingSenderId || getEnv("NEXT_PUBLIC_FIREBASE_2_MESSAGING_SENDER_ID", "VITE_FIREBASE_2_MESSAGING_SENDER_ID", "907491581027"),
+  appId: savedMirror?.appId || getEnv("NEXT_PUBLIC_FIREBASE_2_APP_ID", "VITE_FIREBASE_2_APP_ID", "1:907491581027:web:e45c8faad065d6b8fe6c56"),
 };
 
 export function isConfigValid(cfg: FirebaseInstanceConfig): boolean {

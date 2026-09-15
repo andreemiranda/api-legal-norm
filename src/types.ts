@@ -14,11 +14,15 @@ export interface NewsItem {
   image?: string;
   mediaUrl?: string;
   slug?: string;
+  tags?: string[];
+  readTime?: number;
 }
 
 export interface CategoryItem {
   category: string;
   count: number;
+  tag_count?: number;
+  top_tags?: string[];
 }
 
 export interface NewsSource {

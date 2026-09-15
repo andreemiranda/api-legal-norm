@@ -21,9 +21,9 @@ import { ContactPage } from "./pages/ContactPage";
 
 import staticCategories from "./data/categories.json";
 import staticSources from "./data/sources.json";
-import initialNewsData from "./data/initialNews.json";
 import { searchNews } from "./utils/search";
 import { categoryToSlug, matchCategories } from "./utils/slug";
+import { buildCategoryFeed } from "./utils/categoryFeedManager";
 import {
   sortNewsChronological,
   getRandomSeed,
@@ -58,6 +58,7 @@ function MainPortal() {
   const [currentView, setCurrentView] = useState<string>("home");
   const [selectedPost, setSelectedPost] = useState<NewsItem | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("Todas");
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedSourceId, setSelectedSourceId] = useState<number | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState<string>("");
 
@@ -66,9 +67,7 @@ function MainPortal() {
   const perPage = 12;
 
   // Data states
-  const [news, setNews] = useState<NewsItem[]>(() =>
-    sortNewsChronological(deduplicateNews(initialNewsData as NewsItem[]))
-  );
+  const [news, setNews] = useState<NewsItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>(staticCategories as CategoryItem[]);
   const [sources, setSources] = useState<NewsSource[]>(staticSources as NewsSource[]);
   const [isLoadingNews, setIsLoadingNews] = useState<boolean>(false);
@@ -93,8 +92,15 @@ function MainPortal() {
     } catch {}
   }, []);
 
-  // Hybrid news loading: Firebase RTDB (Primary or Mirror with automatic 9GB rotation) + in-code static fallback
+  // Hybrid news loading & Realtime synchronization (RTDB onValue + SSE + API sync silencioso)
   useEffect(() => {
+    // Inscrição em tempo real silenciosa (sem poluir o frontend com textos/avisos)
+    const unsubscribeRealtime = trafficRouter.subscribeToRealtimeNews((updatedNews) => {
+      if (updatedNews && updatedNews.length > 0) {
+        setNews(sortNewsChronological(deduplicateNews(updatedNews)));
+      }
+    });
+
     async function loadData() {
       try {
         const catRes = await fetch("/api/categories");
@@ -132,23 +138,32 @@ function MainPortal() {
           referrer: document.referrer || "direct",
         });
       } catch (err) {
-        console.warn("Notice: Using static in-code news fallback:", err);
+        console.warn("Notice: Realtime sync connection notice:", err);
       } finally {
         setIsLoadingNews(false);
       }
     }
 
     loadData();
+
+    return () => {
+      unsubscribeRealtime();
+    };
   }, []);
 
-  // Filtered and sorted news (With multi-token relevance scoring)
-  const filteredNews = useMemo(() => {
-    let result = [...news];
+  // Category feed guaranteeing at least 250 items per category with rich tag counts
+  const categoryFeed = useMemo(() => {
+    return buildCategoryFeed(selectedCategory, news);
+  }, [selectedCategory, news]);
 
-    // Filter by Category
-    if (selectedCategory && selectedCategory !== "Todas") {
-      result = result.filter(
-        (item) => item.category?.toLowerCase() === selectedCategory.toLowerCase()
+  // Filtered and sorted news (Category feed + tag filter + source + search)
+  const filteredNews = useMemo(() => {
+    let result = [...categoryFeed.items];
+
+    // Filter by Tag
+    if (selectedTag) {
+      result = result.filter((item) =>
+        item.tags?.some((t) => t.toLowerCase() === selectedTag.toLowerCase())
       );
     }
 
@@ -171,7 +186,7 @@ function MainPortal() {
     });
 
     return result;
-  }, [news, selectedCategory, selectedSourceId, searchTerm]);
+  }, [categoryFeed, selectedTag, selectedSourceId, searchTerm]);
 
   // Paginated items for the current page
   const totalPages = Math.ceil(filteredNews.length / perPage) || 1;
@@ -229,6 +244,7 @@ function MainPortal() {
   // Handler when selecting a category
   const handleSelectCategory = (category: string) => {
     setSelectedCategory(category);
+    setSelectedTag(null);
     setCurrentPage(1);
     setSelectedSourceId(undefined);
     if (currentView !== "home") {
@@ -397,6 +413,13 @@ function MainPortal() {
                 selectedSourceId={selectedSourceId}
                 onClearSourceFilter={() => setSelectedSourceId(undefined)}
                 isLoading={isLoadingNews}
+                categoryTags={categoryFeed.tags}
+                categoryTagCount={categoryFeed.tag_count}
+                selectedTag={selectedTag}
+                onSelectTag={(tag) => {
+                  setSelectedTag(tag);
+                  setCurrentPage(1);
+                }}
               />
             )}
 

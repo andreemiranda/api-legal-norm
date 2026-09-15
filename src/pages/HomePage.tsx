@@ -12,7 +12,9 @@ import {
   Layers,
   ArrowUpDown,
   Search,
-  RefreshCw
+  RefreshCw,
+  Tag,
+  Hash
 } from "lucide-react";
 
 interface HomePageProps {
@@ -34,6 +36,10 @@ interface HomePageProps {
   selectedSourceId?: number;
   onClearSourceFilter: () => void;
   isLoading: boolean;
+  categoryTags?: Array<{ name: string; count: number }>;
+  categoryTagCount?: number;
+  selectedTag?: string | null;
+  onSelectTag?: (tag: string | null) => void;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({
@@ -55,6 +61,10 @@ export const HomePage: React.FC<HomePageProps> = ({
   selectedSourceId,
   onClearSourceFilter,
   isLoading,
+  categoryTags = [],
+  categoryTagCount = 0,
+  selectedTag = null,
+  onSelectTag,
 }) => {
   const [layoutMode, setLayoutMode] = useState<"grid" | "list">("list");
 
@@ -98,20 +108,37 @@ export const HomePage: React.FC<HomePageProps> = ({
       <section aria-label="Notícias Mais Recentes">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-blue-900/40">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Clock className="w-4 h-4 text-blue-400" />
               <h2 className="font-serif text-xl font-bold text-white tracking-wide">
                 {selectedCategory === "Todas" ? "Últimas Notícias e Reportagens" : `Editoria: ${selectedCategory}`}
               </h2>
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-950/80 text-blue-300 border border-blue-800/60">
+                {allNewsCount} notícias disponíveis
+              </span>
+              {categoryTagCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800/80 text-slate-300 border border-slate-700/60">
+                  <Tag className="w-3 h-3 text-blue-400" />
+                  {categoryTagCount} tags
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Organizadas das mais recentes primeiro • Atualização contínua
+              Organizadas das mais recentes primeiro • Mínimo 250 matérias por editoria com indexação temática
             </p>
           </div>
 
           {/* Controls: View toggle & Active Filter Chips */}
           <div className="flex items-center gap-3">
             {/* Filter pills if active */}
+            {selectedTag && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-600 text-white text-xs font-semibold shadow-sm">
+                <Hash className="w-3 h-3" />
+                Tag: {selectedTag}
+                <button onClick={() => onSelectTag?.(null)} className="hover:text-blue-200 font-bold ml-0.5" title="Remover filtro de tag">✕</button>
+              </span>
+            )}
+
             {searchTerm && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-950 text-blue-300 border border-blue-800 text-xs">
                 Busca: "{searchTerm}"
@@ -145,6 +172,45 @@ export const HomePage: React.FC<HomePageProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Dynamic Tag Filter Bar */}
+        {categoryTags.length > 0 && onSelectTag && (
+          <div className="mt-3 pt-2 pb-1 flex items-center gap-1.5 overflow-x-auto scrollbar-thin scrollbar-thumb-slate-800">
+            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold flex items-center gap-1 shrink-0 mr-1">
+              <Hash className="w-3 h-3 text-blue-400" />
+              Tags:
+            </span>
+            <button
+              onClick={() => onSelectTag(null)}
+              className={`text-xs px-2.5 py-1 rounded-full transition-colors shrink-0 ${
+                !selectedTag
+                  ? "bg-blue-600 text-white font-semibold shadow-sm"
+                  : "bg-slate-900/80 text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800"
+              }`}
+            >
+              Todas ({allNewsCount})
+            </button>
+            {categoryTags.slice(0, 18).map((t) => {
+              const isTagActive = selectedTag?.toLowerCase() === t.name.toLowerCase();
+              return (
+                <button
+                  key={t.name}
+                  onClick={() => onSelectTag(isTagActive ? null : t.name)}
+                  className={`text-xs px-2.5 py-1 rounded-full transition-colors flex items-center gap-1 shrink-0 ${
+                    isTagActive
+                      ? "bg-blue-600 text-white font-semibold shadow-sm"
+                      : "bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800"
+                  }`}
+                >
+                  <span>{t.name}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isTagActive ? "bg-blue-700 text-blue-100" : "bg-slate-800 text-slate-400"}`}>
+                    {t.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Loading indicator */}
         {isLoading ? (

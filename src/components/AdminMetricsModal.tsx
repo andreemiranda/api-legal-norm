@@ -2,20 +2,16 @@ import React, { useState, useEffect } from "react";
 import {
   trafficRouter,
   TrafficRouterState,
-  TrafficSource,
-  TEN_GB_IN_BYTES,
-  NINE_POINT_FIVE_GB_IN_BYTES,
-  ONE_GB_IN_BYTES,
-  NINE_FIFTY_MB_IN_BYTES,
+  TOTAL_STORAGE_LIMIT_BYTES,
+  TOTAL_TRAFFIC_LIMIT_BYTES,
+  PER_DB_STORAGE_THRESHOLD,
+  PER_DB_TRAFFIC_THRESHOLD,
 } from "../services/firebaseTrafficRouter";
 import {
   firebaseAuthService,
   AdminUserState,
   getAdminEmailsList,
-  isEmailAdmin,
 } from "../services/firebaseAuthService";
-import { getSiteDomain } from "../utils/domain";
-import staticNewsData from "../data/initialNews.json";
 import {
   Shield,
   Database,
@@ -32,8 +28,8 @@ import {
   Lock,
   Layers,
   FileText,
-  KeyRound,
   Mail,
+  Zap,
 } from "lucide-react";
 
 interface AdminMetricsModalProps {
@@ -48,11 +44,11 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
   const [syncProgress, setSyncProgress] = useState<number>(0);
   const [syncMessage, setSyncMessage] = useState<string>("");
   const [syncResult, setSyncResult] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"traffic" | "storage" | "sync" | "auth">("traffic");
+  const [activeTab, setActiveTab] = useState<"traffic" | "storage" | "sobrescricao" | "auth">("traffic");
 
-  // Direct login form for unauthorized gate
-  const [loginEmail, setLoginEmail] = useState(getAdminEmailsList()[0] || "acrmrochamiranda@gmail.com");
-  const [loginPassword, setLoginPassword] = useState("");
+  // Direct login states for admin gate (Exclusive Google Auth)
+  const [googleEmailInput, setGoogleEmailInput] = useState("");
+  const [showDirectInput, setShowDirectInput] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
 
@@ -79,24 +75,25 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
     return Math.min(100, Math.max(0, (used / limit) * 100));
   };
 
-  const handleSync = async () => {
+  const handleSyncAndSobrescricao = async () => {
     try {
       setIsSyncing(true);
       setSyncResult(null);
-      setSyncProgress(10);
-      setSyncMessage("Iniciando espelhamento e indexação de notícias...");
+      setSyncProgress(15);
+      setSyncMessage("Obtendo notícias atuais dos bancos Realtime...");
 
-      const res = await trafficRouter.mirrorNewsToFirebase(
-        staticNewsData as any,
-        (progress, msg) => {
-          setSyncProgress(progress);
-          setSyncMessage(msg);
-        }
-      );
+      const { news } = await trafficRouter.fetchNews();
+      setSyncProgress(40);
+      setSyncMessage(`Indexando ${news.length} artigos e avaliando limites de 1,9 GB / 20 GB...`);
+
+      const res = await trafficRouter.mirrorNewsToFirebase(news, (progress, msg) => {
+        setSyncProgress(progress);
+        setSyncMessage(msg);
+      });
 
       if (res.success) {
         setSyncResult(
-          `Sucesso: ${res.syncedCount} notícias espelhadas com destino "${res.targetUsed}"! Índice atualizado com integridade garantida.`
+          `Sucesso: ${res.syncedCount} notícias sincronizadas com destino "${res.targetUsed}"! Limites de 1,9 GB e 20 GB protegidos com sobrescrição automática ativa.`
         );
       } else if (res.warning) {
         setSyncResult(res.warning);
@@ -108,23 +105,19 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
     }
   };
 
-  const handleDirectLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError(null);
-    setLoginLoading(true);
+  const handleManualSobrescricaoTest = async () => {
     try {
-      const res = await firebaseAuthService.signInWithAdminPassword(
-        loginEmail,
-        loginPassword,
-        "Administrador Autorizado"
+      setIsSyncing(true);
+      setSyncResult(null);
+      setSyncMessage("Executando sobrescrição controlada de registros mais antigos...");
+      const res = await trafficRouter.executeStorageSobrescricao("primary", 20);
+      setSyncResult(
+        `Sobrescrição executada com êxito: ${res.prunedCount} registros antigos rotacionados liberando ${formatBytes(res.bytesFreed)} para novas notícias.`
       );
-      if (!res.success) {
-        setLoginError(res.error || "Falha na autenticação administrativa.");
-      }
     } catch (err: any) {
-      setLoginError(err.message || "Erro inesperado.");
+      setSyncResult(`Erro na sobrescrição: ${err.message || err}`);
     } finally {
-      setLoginLoading(false);
+      setIsSyncing(false);
     }
   };
 
@@ -135,20 +128,35 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
       const nativeRes = await firebaseAuthService.signInWithGooglePopup();
       if (nativeRes.success) {
         if (!nativeRes.isAdmin) {
-          setLoginError("Esta Conta Google não possui permissão de administrador.");
+          setLoginError("Esta Conta Google não possui privilégios de administrador.");
         }
       } else {
-        // Prompt for Google email
-        const emailPrompt = window.prompt("Digite o e-mail da sua Conta Google de Administrador:");
-        if (emailPrompt) {
-          const res = await firebaseAuthService.signInWithGoogleAccount({ email: emailPrompt });
-          if (!res.isAdmin) {
-            setLoginError("Esta Conta Google não possui permissão de administrador.");
-          }
-        }
+        setShowDirectInput(true);
       }
     } catch (err: any) {
       setLoginError(err.message || "Falha ao conectar com o Google.");
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleConfirmGoogleAdminEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+    setLoginLoading(true);
+    try {
+      const res = await firebaseAuthService.signInWithGoogleAccount({
+        email: googleEmailInput.trim().toLowerCase(),
+      });
+      if (res.success) {
+        if (!res.isAdmin) {
+          setLoginError("Esta Conta Google não está na lista de administradores autorizados.");
+        }
+      } else {
+        setLoginError(res.error || "Não foi possível validar a Conta Google.");
+      }
+    } catch (err: any) {
+      setLoginError(err.message || "Erro ao conectar.");
     } finally {
       setLoginLoading(false);
     }
@@ -158,26 +166,24 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
     await firebaseAuthService.signOut();
   };
 
-  const primaryTrafficPct = getPercent(routerState.primaryTraffic.bytesUsed, TEN_GB_IN_BYTES);
-  const mirrorTrafficPct = getPercent(routerState.mirrorTraffic.bytesUsed, TEN_GB_IN_BYTES);
+  const primaryTrafficPct = getPercent(routerState.primaryTraffic.bytesUsed, PER_DB_TRAFFIC_THRESHOLD);
+  const mirrorTrafficPct = getPercent(routerState.mirrorTraffic.bytesUsed, PER_DB_TRAFFIC_THRESHOLD);
   const totalTrafficUsed = routerState.primaryTraffic.bytesUsed + routerState.mirrorTraffic.bytesUsed;
-  const combinedTrafficLimit = 2 * TEN_GB_IN_BYTES; // ~20GB total
-  const combinedTrafficPct = getPercent(totalTrafficUsed, combinedTrafficLimit);
+  const combinedTrafficPct = getPercent(totalTrafficUsed, TOTAL_TRAFFIC_LIMIT_BYTES);
 
-  const primaryStoragePct = getPercent(routerState.primaryStorage.bytesUsed, ONE_GB_IN_BYTES);
-  const mirrorStoragePct = getPercent(routerState.mirrorStorage.bytesUsed, ONE_GB_IN_BYTES);
+  const primaryStoragePct = getPercent(routerState.primaryStorage.bytesUsed, PER_DB_STORAGE_THRESHOLD);
+  const mirrorStoragePct = getPercent(routerState.mirrorStorage.bytesUsed, PER_DB_STORAGE_THRESHOLD);
   const totalStorageUsed = routerState.primaryStorage.bytesUsed + routerState.mirrorStorage.bytesUsed;
-  const combinedStorageLimit = 2 * ONE_GB_IN_BYTES; // ~2GB total
-  const combinedStoragePct = getPercent(totalStorageUsed, combinedStorageLimit);
+  const combinedStoragePct = getPercent(totalStorageUsed, TOTAL_STORAGE_LIMIT_BYTES);
 
-  // GATE 1: Se o usuário NÃO for administrador (ou não autenticado), exibe a tela de login restrito aos administradores
+  // GATE 1: Se o usuário NÃO for administrador autenticado, exibe a tela de login restrito via Google
   if (!authState.isAuthenticated || !authState.isAdmin) {
     return (
       <div
         id="admin-metrics-gate"
         className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in"
       >
-        <div className="relative w-full max-w-md bg-slate-900 border border-blue-900/60 rounded-3xl shadow-2xl p-6 sm:p-7 text-slate-100 modal-content">
+        <div className="relative w-full max-w-md bg-slate-900 border border-blue-900/60 rounded-3xl shadow-2xl p-6 sm:p-8 text-slate-100 modal-content">
           <button
             onClick={onClose}
             className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
@@ -193,13 +199,13 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
           <h3 className="font-serif text-lg font-bold text-white text-center mb-1">
             Acesso Restrito a Administradores
           </h3>
-          <p className="text-xs text-slate-300 leading-relaxed text-center mb-4">
-            A página de Meta & Tráfego é restrita exclusivamente aos administradores autorizados.
+          <p className="text-xs text-slate-300 leading-relaxed text-center mb-5">
+            A página de Meta & Tráfego é reservada exclusivamente aos administradores cadastrados no sistema.
           </p>
 
           {authState.isAuthenticated && !authState.isAdmin && (
-            <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">
-              <p className="font-semibold text-amber-300 mb-0.5">Conta Conectada sem Privilégio Admin:</p>
+            <div className="mb-5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">
+              <p className="font-semibold text-amber-300 mb-0.5">Conta Google sem Permissão Admin:</p>
               <p>
                 Você está conectado como <strong>{authState.displayName || authState.email}</strong> (Leitor).
                 Apenas administradores podem visualizar o painel de métricas.
@@ -208,20 +214,20 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
           )}
 
           {loginError && (
-            <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-200">
+            <div className="mb-5 p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-200">
               <p className="font-semibold text-rose-300 mb-0.5">Restrição de Acesso:</p>
               <p>{loginError}</p>
             </div>
           )}
 
-          {/* Google Sign-in for Admin button */}
+          {/* Exclusive Google Sign-in Button */}
           <button
             type="button"
             onClick={handleGoogleGateLogin}
             disabled={loginLoading}
-            className="w-full mb-4 flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-full bg-white hover:bg-slate-100 text-slate-800 font-medium text-xs border border-slate-300 shadow-sm transition-all cursor-pointer"
+            className="w-full py-3 px-4 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-xs border border-slate-300 shadow-md transition-all cursor-pointer flex items-center justify-center gap-3 active:scale-[0.98]"
           >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
               <path
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
                 fill="#4285F4"
@@ -239,138 +245,120 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                 fill="#EA4335"
               />
             </svg>
-            <span>Entrar com Conta Google de Administrador</span>
+            <span>{loginLoading ? "Autenticando..." : "Entrar com Conta Google de Administrador"}</span>
           </button>
 
-          <div className="relative flex items-center justify-center my-3">
-            <div className="border-t border-slate-800 w-full" />
-            <span className="bg-slate-900 px-2 text-[10px] uppercase tracking-wider text-slate-500 font-medium">
-              ou com senha
-            </span>
+          {showDirectInput && (
+            <form onSubmit={handleConfirmGoogleAdminEmail} className="mt-4 pt-4 border-t border-slate-800 space-y-3">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-400 mb-1 flex items-center gap-1">
+                  <Mail className="w-3.5 h-3.5 text-blue-400" />
+                  E-mail da sua Conta Google de Administrador
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={googleEmailInput}
+                  onChange={(e) => setGoogleEmailInput(e.target.value)}
+                  placeholder="administrador@gmail.com"
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-950 border border-slate-800 focus:border-blue-500 text-white outline-none"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loginLoading}
+                className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              >
+                <span>Validar Acesso Administrativo</span>
+              </button>
+            </form>
+          )}
+
+          <div className="mt-5 pt-4 border-t border-slate-800 text-[11px] text-slate-500 text-center">
+            A autenticação deste site é realizada exclusivamente com Contas Google.
           </div>
-
-          <form onSubmit={handleDirectLogin} className="space-y-3">
-            <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-1 flex items-center gap-1">
-                <Mail className="w-3.5 h-3.5 text-blue-400" />
-                E-mail do Administrador
-              </label>
-              <input
-                type="email"
-                required
-                value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-800 focus:border-blue-500 text-white outline-none"
-                placeholder="administrador@dominio.com"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-1 flex items-center gap-1">
-                <Lock className="w-3.5 h-3.5 text-blue-400" />
-                Senha de Administrador
-              </label>
-              <input
-                type="password"
-                required
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-800 focus:border-blue-500 text-white outline-none"
-                placeholder="Digite a senha de administrador"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loginLoading}
-              className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-md transition-all active:scale-[0.98] disabled:opacity-60 cursor-pointer"
-            >
-              <KeyRound className="w-4 h-4" />
-              <span>{loginLoading ? "Verificando permissões..." : "Acessar com Senha"}</span>
-            </button>
-          </form>
         </div>
       </div>
     );
   }
 
-  // USUÁRIO ADMINISTRADOR AUTENTICADO: Exibe o Painel Completo de Tráfego e Metas
+  // USUÁRIO ADMINISTRADOR AUTENTICADO: Exibe o Painel Completo
   return (
     <div
       id="admin-metrics-modal"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in"
     >
-      <div className="relative w-full max-w-4xl bg-slate-900 border border-blue-900/60 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] modal-content">
-        {/* Modal Header */}
+      <div className="relative w-full max-w-4xl bg-slate-900 border border-blue-900/60 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] modal-content">
+        {/* Header */}
         <div className="p-5 border-b border-blue-900/40 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
+            <div className="w-10 h-10 rounded-2xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
               <Activity className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-white tracking-wide">
-                  Painel de Metas, Tráfego & Armazenamento
+                  Painel de Metas, Tráfego & Sobrescrição
                 </h2>
                 <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-800 text-emerald-300">
-                  Rotação 19GB / 1900MB
+                  Limites: 1,9 GB / 20 GB
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Capacidade combinada dos 2 Projetos Firebase (Spark) com integridade absoluta de dados
+                Operação exclusiva via Realtime Database (legal-norm2 & legal-norm3) com Sobrescrição Automática Ativa
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800/80 rounded-lg transition-colors cursor-pointer"
+            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800/80 rounded-xl transition-colors cursor-pointer"
             aria-label="Fechar"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Tab Navigation */}
+        {/* Navigation Tabs */}
         <div className="flex border-b border-slate-800 bg-slate-950/50 px-6 gap-2 pt-2 text-xs">
           <button
             onClick={() => setActiveTab("traffic")}
-            className={`flex items-center gap-2 px-4 py-2.5 font-semibold rounded-t-lg transition-colors cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2.5 font-semibold rounded-t-xl transition-colors cursor-pointer ${
               activeTab === "traffic"
                 ? "bg-slate-900 text-blue-400 border-t-2 border-blue-500"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
             <ArrowRightLeft className="w-4 h-4" />
-            <span>Tráfego Mensal (19GB)</span>
+            <span>Tráfego (20 GB)</span>
           </button>
 
           <button
             onClick={() => setActiveTab("storage")}
-            className={`flex items-center gap-2 px-4 py-2.5 font-semibold rounded-t-lg transition-colors cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2.5 font-semibold rounded-t-xl transition-colors cursor-pointer ${
               activeTab === "storage"
                 ? "bg-slate-900 text-blue-400 border-t-2 border-blue-500"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
             <HardDrive className="w-4 h-4" />
-            <span>Armazenamento (1900MB)</span>
+            <span>Espaço (1,9 GB)</span>
           </button>
 
           <button
-            onClick={() => setActiveTab("sync")}
-            className={`flex items-center gap-2 px-4 py-2.5 font-semibold rounded-t-lg transition-colors cursor-pointer ${
-              activeTab === "sync"
+            onClick={() => setActiveTab("sobrescricao")}
+            className={`flex items-center gap-2 px-4 py-2.5 font-semibold rounded-t-xl transition-colors cursor-pointer ${
+              activeTab === "sobrescricao"
                 ? "bg-slate-900 text-blue-400 border-t-2 border-blue-500"
                 : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            <Database className="w-4 h-4" />
-            <span>Índice & Espelhamento</span>
+            <Zap className="w-4 h-4" />
+            <span>Motor de Sobrescrição</span>
           </button>
 
           <button
             onClick={() => setActiveTab("auth")}
-            className={`flex items-center gap-2 px-4 py-2.5 font-semibold rounded-t-lg transition-colors cursor-pointer ${
+            className={`flex items-center gap-2 px-4 py-2.5 font-semibold rounded-t-xl transition-colors cursor-pointer ${
               activeTab === "auth"
                 ? "bg-slate-900 text-blue-400 border-t-2 border-blue-500"
                 : "text-slate-400 hover:text-slate-200"
@@ -383,14 +371,14 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1 text-sm text-slate-300">
-          {/* TAB 1: ROTAÇÃO DE TRÁFEGO (19GB) */}
+          {/* TAB 1: TRÁFEGO MENSAL (20GB) */}
           {activeTab === "traffic" && (
             <div className="space-y-6">
               {/* Active Source Banner */}
-              <div className="p-4 rounded-xl border border-blue-900/60 bg-blue-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="p-4 rounded-2xl border border-blue-900/60 bg-blue-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <span className="text-xs font-mono uppercase text-blue-400 block mb-1">
-                    Fonte Ativa de Leitura de Notícias (Ciclo: {routerState.monthCycle})
+                    Fonte Ativa de Leitura (Ciclo: {routerState.monthCycle})
                   </span>
                   <div className="flex items-center gap-2">
                     <span
@@ -403,22 +391,20 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                       }`}
                     />
                     <h3 className="text-base font-bold text-white capitalize">
-                      {routerState.activeReadSource === "primary" && "Banco 1 • legal-norm2 (Instância Principal)"}
-                      {routerState.activeReadSource === "mirror" && "Banco 2 • legal-norm3 (Instância Espelho)"}
-                      {routerState.activeReadSource === "static" && "Fallback Estático In-Code (Alta Disponibilidade)"}
+                      {routerState.activeReadSource === "primary" && "Banco 1 • legal-norm2 (Realtime Database)"}
+                      {routerState.activeReadSource === "mirror" && "Banco 2 • legal-norm3 (Realtime Database)"}
+                      {routerState.activeReadSource === "api" && "API Proxy Restrita (Proteção de Tráfego)"}
                     </h3>
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    {routerState.mode === "automatic"
-                      ? "Rotação Automática: Ao atingir 9.5GB no Banco 1, as leituras alternam para o Banco 2 (10GB)."
-                      : "Modo Manual Ativado."}
+                    Rotação automática em ~9,8 GB por banco. Ao atingir o teto de 20 GB, a sobrescrição de tráfego mantém as requisições ativas.
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => trafficRouter.resetToAutomatic()}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors cursor-pointer ${
                       routerState.mode === "automatic"
                         ? "bg-emerald-950 border-emerald-700 text-emerald-300"
                         : "bg-slate-800 border-slate-700 text-slate-400 hover:text-white"
@@ -432,20 +418,20 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                         routerState.activeReadSource === "primary" ? "mirror" : "primary"
                       )
                     }
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-950/80 border border-blue-700/60 text-blue-300 hover:bg-blue-900 transition-colors flex items-center gap-1.5 cursor-pointer"
+                    className="px-3 py-1.5 rounded-xl text-xs font-medium bg-blue-950/80 border border-blue-700/60 text-blue-300 hover:bg-blue-900 transition-colors flex items-center gap-1.5 cursor-pointer"
                   >
                     <ArrowRightLeft className="w-3.5 h-3.5" />
-                    <span>Alternar Leitura</span>
+                    <span>Alternar Banco</span>
                   </button>
                 </div>
               </div>
 
               {/* Combined Progress */}
-              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                 <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-white">Capacidade Total Combinada de Tráfego Mensal</span>
+                  <span className="font-semibold text-white">Capacidade Global de Tráfego Mensal (2 Bancos)</span>
                   <span className="font-mono text-blue-400 font-bold">
-                    {formatBytes(totalTrafficUsed)} / 20.00 GB (Teto de Rotação: 19.00 GB)
+                    {formatBytes(totalTrafficUsed)} / 20.00 GB
                   </span>
                 </div>
                 <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
@@ -454,117 +440,88 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                     style={{ width: `${Math.max(combinedTrafficPct, 2)}%` }}
                   />
                 </div>
+                <p className="text-[11px] text-slate-500">
+                  Sobrescrição de tráfego opera nas proximidades do limite de 20 GB sem queda de serviço.
+                </p>
               </div>
 
               {/* Individual Traffic Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Banco 1 Traffic */}
-                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Server className="w-4 h-4 text-blue-400" />
                       <h4 className="font-bold text-white text-sm">Banco 1 • legal-norm2</h4>
                     </div>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
-                      10GB Limite
+                      ~10 GB Limite
                     </span>
                   </div>
-
                   <div>
                     <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-400">Tráfego de Download:</span>
+                      <span className="text-slate-400">Tráfego Utilizado:</span>
                       <span className="font-mono text-white font-semibold">
                         {formatBytes(routerState.primaryTraffic.bytesUsed)} / 10.00 GB
                       </span>
                     </div>
                     <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                       <div
-                        className={`h-full transition-all duration-500 ${
-                          primaryTrafficPct >= 95 ? "bg-red-500" : primaryTrafficPct >= 70 ? "bg-amber-500" : "bg-blue-500"
-                        }`}
+                        className="h-full bg-blue-500 transition-all duration-500"
                         style={{ width: `${Math.max(primaryTrafficPct, 2)}%` }}
                       />
                     </div>
-                    <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                      <span>Rotação em: 9.50 GB</span>
-                      <span>{primaryTrafficPct.toFixed(1)}% utilizado</span>
-                    </div>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-900 text-xs">
-                    <div>
-                      <span className="text-slate-500 block text-[11px]">Leituras Realizadas:</span>
-                      <span className="font-mono text-slate-300">{routerState.primaryTraffic.requestCount}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block text-[11px]">Falhas / 429:</span>
-                      <span className="font-mono text-slate-300">{routerState.primaryTraffic.errorCount}</span>
-                    </div>
+                  <div className="text-xs text-slate-400">
+                    Requisições atendidas: <span className="font-mono text-white">{routerState.primaryTraffic.requestCount}</span>
                   </div>
                 </div>
 
-                {/* Banco 2 Traffic */}
-                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Server className="w-4 h-4 text-purple-400" />
                       <h4 className="font-bold text-white text-sm">Banco 2 • legal-norm3</h4>
                     </div>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
-                      10GB Limite
+                      ~10 GB Limite
                     </span>
                   </div>
-
                   <div>
                     <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-400">Tráfego de Download:</span>
+                      <span className="text-slate-400">Tráfego Utilizado:</span>
                       <span className="font-mono text-white font-semibold">
                         {formatBytes(routerState.mirrorTraffic.bytesUsed)} / 10.00 GB
                       </span>
                     </div>
                     <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                       <div
-                        className={`h-full transition-all duration-500 ${
-                          mirrorTrafficPct >= 95 ? "bg-red-500" : mirrorTrafficPct >= 70 ? "bg-amber-500" : "bg-purple-500"
-                        }`}
+                        className="h-full bg-purple-500 transition-all duration-500"
                         style={{ width: `${Math.max(mirrorTrafficPct, 2)}%` }}
                       />
                     </div>
-                    <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                      <span>Rotação em: 9.50 GB</span>
-                      <span>{mirrorTrafficPct.toFixed(1)}% utilizado</span>
-                    </div>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-900 text-xs">
-                    <div>
-                      <span className="text-slate-500 block text-[11px]">Leituras Realizadas:</span>
-                      <span className="font-mono text-slate-300">{routerState.mirrorTraffic.requestCount}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block text-[11px]">Falhas / 429:</span>
-                      <span className="font-mono text-slate-300">{routerState.mirrorTraffic.errorCount}</span>
-                    </div>
+                  <div className="text-xs text-slate-400">
+                    Requisições atendidas: <span className="font-mono text-white">{routerState.mirrorTraffic.requestCount}</span>
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* TAB 2: ARMAZENAMENTO & ROTAÇÃO DE ESPAÇO (1900MB) */}
+          {/* TAB 2: ARMAZENAMENTO & CAPACIDADE (1,9 GB) */}
           {activeTab === "storage" && (
             <div className="space-y-6">
               {/* Storage Target Banner */}
-              <div className="p-4 rounded-xl border border-blue-900/60 bg-blue-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="p-4 rounded-2xl border border-blue-900/60 bg-blue-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <span className="text-xs font-mono uppercase text-blue-400 block mb-1">
-                    Alvo Ativo de Novas Gravações (Teto 950MB por Banco)
+                    Alvo Ativo de Gravação (Teto: ~950 MB por Banco)
                   </span>
                   <div className="flex items-center gap-2">
                     <span
                       className={`w-3 h-3 rounded-full ${
-                        routerState.activeWriteTarget === "warning_both_full"
-                          ? "bg-red-500 animate-pulse"
+                        routerState.activeWriteTarget === "sobrescricao_both_active"
+                          ? "bg-amber-400 animate-pulse"
                           : routerState.activeWriteTarget === "primary"
                           ? "bg-emerald-400"
                           : "bg-purple-400"
@@ -572,22 +529,22 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                     />
                     <h3 className="text-base font-bold text-white">
                       {routerState.activeWriteTarget === "primary" && "Gravando em Banco 1 (legal-norm2)"}
-                      {routerState.activeWriteTarget === "mirror" && "Gravando em Banco 2 (legal-norm3 - Rotação Ativa)"}
-                      {routerState.activeWriteTarget === "warning_both_full" && "Capacidade Máxima Atingida em Ambos (1900MB)"}
+                      {routerState.activeWriteTarget === "mirror" && "Gravando em Banco 2 (legal-norm3)"}
+                      {routerState.activeWriteTarget === "sobrescricao_both_active" && "Sobrescrição Automática Ativa em Ambos (~1,9 GB)"}
                     </h3>
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    Quando o Banco 1 atinge 950MB, novas notícias são gravadas no Banco 2. Nenhuma notícia é sobrescrita ou excluída.
+                    Se o Banco 1 atingir 950 MB, novas gravações passam para o Banco 2. Se ambos encherem, o mecanismo de sobrescrição (FIFO) substitui artigos antigos por novos automaticamente.
                   </p>
                 </div>
               </div>
 
               {/* Combined Storage Bar */}
-              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                 <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-white">Capacidade Combinada de Espaço (2 Bancos Spark)</span>
+                  <span className="font-semibold text-white">Espaço Total Ocupado nos Bancos Realtime</span>
                   <span className="font-mono text-emerald-400 font-bold">
-                    {formatBytes(totalStorageUsed)} / 2.00 GB (Teto Seguro de Rotação: 1900 MB)
+                    {formatBytes(totalStorageUsed)} / 1.93 GB (Teto: 1,90 GB)
                   </span>
                 </div>
                 <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
@@ -600,130 +557,110 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
 
               {/* Individual Storage Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Banco 1 Storage */}
-                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <HardDrive className="w-4 h-4 text-blue-400" />
                       <h4 className="font-bold text-white text-sm">Banco 1 • Armazenamento</h4>
                     </div>
-                    <span
-                      className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                        routerState.primaryStorage.isNearLimit
-                          ? "bg-amber-950 text-amber-300 border border-amber-800"
-                          : "bg-emerald-950 text-emerald-300 border border-emerald-800"
-                      }`}
-                    >
-                      {routerState.primaryStorage.isNearLimit ? "Teto 950MB Atingido" : "Disponível"}
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
+                      950 MB Teto
                     </span>
                   </div>
-
                   <div>
                     <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-400">Espaço Ocupado:</span>
+                      <span className="text-slate-400">Espaço:</span>
                       <span className="font-mono text-white font-semibold">
-                        {formatBytes(routerState.primaryStorage.bytesUsed)} / 1024 MB
+                        {formatBytes(routerState.primaryStorage.bytesUsed)} / 950 MB
                       </span>
                     </div>
                     <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                       <div
-                        className={`h-full transition-all duration-500 ${
-                          primaryStoragePct >= 92 ? "bg-amber-500" : "bg-emerald-500"
-                        }`}
+                        className="h-full bg-emerald-500 transition-all duration-500"
                         style={{ width: `${Math.max(primaryStoragePct, 2)}%` }}
                       />
                     </div>
-                    <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                      <span>Rotação de gravação em 950 MB</span>
-                      <span>{primaryStoragePct.toFixed(1)}% do limite</span>
-                    </div>
                   </div>
-
-                  <div className="pt-2 border-t border-slate-900 text-xs">
-                    <span className="text-slate-500 block text-[11px]">Notícias Gravadas:</span>
-                    <span className="font-mono text-slate-300">{routerState.primaryStorage.articleCount} itens</span>
+                  <div className="text-xs text-slate-400">
+                    Notícias armazenadas: <span className="font-mono text-white">{routerState.primaryStorage.articleCount}</span>
                   </div>
                 </div>
 
-                {/* Banco 2 Storage */}
-                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <HardDrive className="w-4 h-4 text-purple-400" />
                       <h4 className="font-bold text-white text-sm">Banco 2 • Armazenamento</h4>
                     </div>
-                    <span
-                      className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                        routerState.mirrorStorage.isNearLimit
-                          ? "bg-amber-950 text-amber-300 border border-amber-800"
-                          : "bg-emerald-950 text-emerald-300 border border-emerald-800"
-                      }`}
-                    >
-                      {routerState.mirrorStorage.isNearLimit ? "Teto 950MB Atingido" : "Disponível"}
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
+                      950 MB Teto
                     </span>
                   </div>
-
                   <div>
                     <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-400">Espaço Ocupado:</span>
+                      <span className="text-slate-400">Espaço:</span>
                       <span className="font-mono text-white font-semibold">
-                        {formatBytes(routerState.mirrorStorage.bytesUsed)} / 1024 MB
+                        {formatBytes(routerState.mirrorStorage.bytesUsed)} / 950 MB
                       </span>
                     </div>
                     <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                       <div
-                        className={`h-full transition-all duration-500 ${
-                          mirrorStoragePct >= 92 ? "bg-amber-500" : "bg-purple-500"
-                        }`}
+                        className="h-full bg-purple-500 transition-all duration-500"
                         style={{ width: `${Math.max(mirrorStoragePct, 2)}%` }}
                       />
                     </div>
-                    <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                      <span>Rotação de gravação em 950 MB</span>
-                      <span>{mirrorStoragePct.toFixed(1)}% do limite</span>
-                    </div>
                   </div>
-
-                  <div className="pt-2 border-t border-slate-900 text-xs">
-                    <span className="text-slate-500 block text-[11px]">Notícias Gravadas:</span>
-                    <span className="font-mono text-slate-300">{routerState.mirrorStorage.articleCount} itens</span>
+                  <div className="text-xs text-slate-400">
+                    Notícias armazenadas: <span className="font-mono text-white">{routerState.mirrorStorage.articleCount}</span>
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* TAB 3: ÍNDICE & ESPELHAMENTO */}
-          {activeTab === "sync" && (
+          {/* TAB 3: MOTOR DE SOBRESCRIÇÃO (1,9 GB & 20 GB) */}
+          {activeTab === "sobrescricao" && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
-                  <span className="text-xs text-slate-500 block">Acervo In-Code</span>
-                  <p className="text-2xl font-bold font-serif text-white">{staticNewsData.length}</p>
-                  <p className="text-[11px] text-slate-400">Notícias estáticas de contingência imediata.</p>
+              <div className="p-5 rounded-2xl border border-blue-900/60 bg-blue-950/20 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                    <Zap className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-white text-base">Mecanismo de Sobrescrição Automática</h4>
+                    <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                      Conforme solicitado, o site opera exclusivamente conectado aos dois bancos Realtime Database sem JSON estático. Para manter a estabilidade no limite de ~1,9 GB de espaço e ~20 GB de tráfego, o sistema executa sobrescrição automática (FIFO) eliminando as notícias e métricas mais antigas quando o limite se aproxima, mantendo o acervo sempre atualizado.
+                    </p>
+                  </div>
                 </div>
 
-                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
-                  <span className="text-xs text-slate-500 block">Índice Catálogo</span>
-                  <p className="text-2xl font-bold font-serif text-emerald-400">{routerState.indexEntriesCount}</p>
-                  <p className="text-[11px] text-slate-400">Notícias mapeadas com localização exata.</p>
-                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+                    <span className="text-slate-400 block mb-1">Sobrescrições de Espaço:</span>
+                    <span className="font-mono text-white font-bold text-base">
+                      {routerState.sobrescricao.storageSobrescricaoCount} ciclos
+                    </span>
+                  </div>
 
-                <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
-                  <span className="text-xs text-slate-500 block">Total Catalogado</span>
-                  <p className="text-2xl font-bold font-serif text-blue-400">{routerState.totalArticlesCount}</p>
-                  <p className="text-[11px] text-slate-400">100% de preservação garantida.</p>
+                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+                    <span className="text-slate-400 block mb-1">Sobrescrições de Tráfego:</span>
+                    <span className="font-mono text-white font-bold text-base">
+                      {routerState.sobrescricao.trafficSobrescricaoCount} ciclos
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+                    <span className="text-slate-400 block mb-1">Artigos Rotacionados:</span>
+                    <span className="font-mono text-emerald-400 font-bold text-base">
+                      {routerState.sobrescricao.prunedArticlesCount} itens
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              {/* Sync Action */}
-              <div className="p-5 rounded-xl border border-blue-900/60 bg-blue-950/20 space-y-4">
-                <div>
-                  <h4 className="font-bold text-white text-base">Espelhar Acervo nos Bancos Firebase</h4>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Grava o acervo no banco ativo respeitando o teto de 950MB e atualiza o índice catalográfico leve.
-                  </p>
-                </div>
+              {/* Action Buttons */}
+              <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4">
+                <h4 className="font-bold text-white text-sm">Ações Manuais de Sincronização e Sobrescrição</h4>
 
                 {isSyncing && (
                   <div className="space-y-2">
@@ -741,42 +678,49 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                 )}
 
                 {syncResult && (
-                  <div className="p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/80 text-xs text-emerald-300">
+                  <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-800/80 text-xs text-emerald-300">
                     {syncResult}
                   </div>
                 )}
 
-                <button
-                  onClick={handleSync}
-                  disabled={isSyncing}
-                  className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer transition-all ${
-                    isSyncing
-                      ? "bg-slate-800 text-slate-500 cursor-not-allowed"
-                      : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/30"
-                  }`}
-                >
-                  <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
-                  <span>{isSyncing ? "Sincronizando..." : "Executar Espelhamento e Indexação"}</span>
-                </button>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={handleSyncAndSobrescricao}
+                    disabled={isSyncing}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-2 shadow-lg shadow-blue-600/30 cursor-pointer disabled:opacity-60"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
+                    <span>Sincronizar Notícias e Avaliar Sobrescrição</span>
+                  </button>
+
+                  <button
+                    onClick={handleManualSobrescricaoTest}
+                    disabled={isSyncing}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-2 cursor-pointer disabled:opacity-60"
+                  >
+                    <Zap className="w-4 h-4 text-amber-400" />
+                    <span>Executar Ciclo de Sobrescrição (Liberar Espaço)</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
-          {/* TAB 4: ADMINISTRADORES AUTORIZADOS */}
+          {/* TAB 4: ADMINISTRADORES */}
           {activeTab === "auth" && (
             <div className="space-y-6">
-              <div className="p-5 rounded-xl bg-slate-950 border border-slate-800 space-y-4">
+              <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h4 className="font-bold text-white text-sm">Sessão Administrativa Atual</h4>
-                    <p className="text-xs text-slate-400">Autenticado via Firebase Authentication nativo</p>
+                    <h4 className="font-bold text-white text-sm">Sessão Administrativa Google</h4>
+                    <p className="text-xs text-slate-400">Autenticado com Conta Google</p>
                   </div>
                   <span className="text-xs px-2.5 py-0.5 rounded-full font-mono bg-emerald-950 text-emerald-300 border border-emerald-800">
                     Administrador Verificado
                   </span>
                 </div>
 
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-slate-900 border border-slate-800">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-slate-900 border border-slate-800">
                   <div className="flex items-center gap-3">
                     {authState.photoURL ? (
                       <img
@@ -797,7 +741,7 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
 
                   <button
                     onClick={handleLogout}
-                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-red-950/60 border border-red-800/80 text-red-300 hover:bg-red-900 transition-colors flex items-center gap-1.5 cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-red-950/60 border border-red-800/80 text-red-300 hover:bg-red-900 transition-colors flex items-center gap-1.5 cursor-pointer"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                     <span>Encerrar Sessão</span>
@@ -806,20 +750,16 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
               </div>
 
               {/* List of configured administrators */}
-              <div className="p-5 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+              <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
                 <h4 className="font-bold text-white text-sm flex items-center gap-2">
                   <Shield className="w-4 h-4 text-blue-400" />
-                  E-mails com Permissão de Administrador
+                  E-mails de Administradores Autorizados
                 </h4>
-                <p className="text-xs text-slate-400">
-                  Somente os endereços autorizados possuem acesso administrativo a este painel:
-                </p>
-
                 <div className="space-y-2 pt-1">
                   {getAdminEmailsList().map((adm, i) => (
                     <div
                       key={adm}
-                      className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs"
+                      className="flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs"
                     >
                       <div className="flex items-center gap-2">
                         <span className="w-5 h-5 rounded-full bg-blue-900/60 text-blue-300 flex items-center justify-center text-[10px] font-mono">
