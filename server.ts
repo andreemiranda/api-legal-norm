@@ -22,13 +22,31 @@ const PORT = 3000;
 
 // Security Middleware
 app.use(helmet({
-  contentSecurityPolicy: false, // Disabled to prevent blocking AdSense, Firebase Auth, and external images
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://pagead2.googlesyndication.com", "https://www.googletagmanager.com", "https://apis.google.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      imgSrc: ["'self'", "data:", "https:", "http:"],
+      connectSrc: ["'self'", "https://*.firebaseio.com", "https://*.googleapis.com", "https://api-news-media.netlify.app", "https://pagead2.googlesyndication.com", "https://googleads.g.doubleclick.net", "https://www.google-analytics.com"],
+      frameSrc: ["'self'", "https://googleads.g.doubleclick.net", "https://normajuridica.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+    }
+  },
   crossOriginEmbedderPolicy: false,
 }));
 
 // CORS Configuration
 app.use(cors({
-  origin: process.env.NODE_ENV === "production" ? [process.env.NEXT_PUBLIC_DOMAIN || "https://normajuridica.com"] : "*",
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const allowed = (process.env.CORS_ALLOWED_ORIGINS || process.env.NEXT_PUBLIC_DOMAIN || process.env.DOMAIN || "https://normajuridica.com").split(",");
+    if (process.env.NODE_ENV !== "production" || allowed.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
@@ -570,7 +588,6 @@ app.post("/api/admin/verify-password", authLimiter, express.json(), (req, res) =
   const { password, email } = req.body || {};
   const serverAdminPassword = (
     process.env.ADMIN_PASSWORD ||
-    process.env.VITE_ADMIN_PASSWORD ||
     process.env.ADMIN_SENHA ||
     ""
   ).trim();
@@ -649,7 +666,8 @@ app.get("/api/images/:id", async (req, res) => {
   // Try upstream
   try {
     const upstream = await fetch(
-      `https://api-news-media.netlify.app/api/images/${idStr}?api_key=${process.env.NEWS_API_KEY}&limit=15`
+      `https://api-news-media.netlify.app/api/images/${encodeURIComponent(idStr)}?api_key=${process.env.NEWS_API_KEY}&limit=15`,
+      { signal: AbortSignal.timeout(5000) }
     );
     if (upstream.ok) {
       const data = await upstream.json();
@@ -781,7 +799,7 @@ app.get("/api/feed/news", getNewsHandler);
 app.get(["/api/news/:id", "/api/feed/news/:id"], (req, res) => {
   const idStr = String(req.params.id);
   const item = allNewsData.find(
-    (n) => String(n.id) === idStr || n.slug === idStr || n.slug === `post/${idStr}`
+    (n) => String(n.id) === idStr || n.slug === idStr || n.slug === `post/${encodeURIComponent(idStr)}`
   );
 
   if (item) {
@@ -816,7 +834,8 @@ const sourcesMonitoringState = {
 async function monitorUpstreamSources() {
   try {
     const upstreamRes = await fetch(
-      `https://api-news-media.netlify.app/api/news?api_key=${process.env.NEWS_API_KEY}&limit=30`
+      `https://api-news-media.netlify.app/api/news?api_key=${process.env.NEWS_API_KEY}&limit=30`,
+      { signal: AbortSignal.timeout(5000) }
     );
     if (upstreamRes.ok) {
       const data: any = await upstreamRes.json();
@@ -864,7 +883,12 @@ app.get("/api/monitoring/sources", (_req: express.Request, res: express.Response
   });
 });
 
-app.post("/api/monitoring/sync", authLimiter, async (_req: express.Request, res: express.Response) => {
+app.post("/api/monitoring/sync", authLimiter, async (req: express.Request, res: express.Response) => {
+  const serverAdminPassword = (process.env.ADMIN_PASSWORD || "").trim();
+  const authHeader = req.headers.authorization;
+  if (!serverAdminPassword || authHeader !== `Bearer ${serverAdminPassword}`) {
+    return res.status(401).json({ success: false, error: "Não autorizado" });
+  }
   await monitorUpstreamSources();
   res.json({
     success: true,
@@ -949,7 +973,7 @@ app.get("/api/weather", async (req, res) => {
     let state = (req.query.state as string) || "DF";
 
     const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=auto`;
-    const response = await fetch(weatherUrl);
+    const response = await fetch(weatherUrl, { signal: AbortSignal.timeout(5000) });
     const data = await response.json();
 
     const current = data.current || {};
@@ -1007,7 +1031,15 @@ app.get("/api/weather", async (req, res) => {
 
 // 13. Contact & DSAR form via SMTP
 app.post("/api/contact", contactLimiter, async (req, res) => {
-  const { name, email, phone, subject, category, message, lgpdConsent, requestType, cpf } = req.body;
+  const { lgpdConsent } = req.body;
+  const name = String(req.body.name || "").slice(0, 100);
+  const email = String(req.body.email || "").slice(0, 150);
+  const phone = String(req.body.phone || "").slice(0, 30);
+  const subject = String(req.body.subject || "").slice(0, 150);
+  const category = String(req.body.category || "").slice(0, 100);
+  const message = String(req.body.message || "").slice(0, 5000);
+  const requestType = String(req.body.requestType || "").slice(0, 100);
+  const cpf = String(req.body.cpf || "").slice(0, 20);
 
   if (!name || !email || !message) {
     return res.status(400).json({
@@ -1103,7 +1135,7 @@ app.post("/api/contact", contactLimiter, async (req, res) => {
         mode: "live_smtp",
       });
     } catch (smtpErr) {
-      console.error("SMTP error:", smtpErr);
+      console.error("SMTP error:", (smtpErr as Error)?.message || "Unknown error");
     }
   }
 
