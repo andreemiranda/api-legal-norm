@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" style="background-color: #0b1329; color: #f1f5f9;">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -55,8 +55,15 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
-  <body class="bg-slate-900 text-slate-100 font-sans antialiased selection:bg-blue-600 selection:text-white">
-    <div id="root"></div>
+  <body class="bg-slate-900 text-slate-100 font-sans antialiased selection:bg-blue-600 selection:text-white" style="background-color: #0b1329; color: #f1f5f9; min-height: 100vh; margin: 0;">
+    <div id="root">
+      <div id="app-initial-loader" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background-color:#0b1329;color:#94a3b8;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:center;padding:24px;">
+        <div style="width:36px;height:36px;border:3px solid #1e3a8a;border-top-color:#3b82f6;border-radius:50%;animation:nj-spin 0.9s linear infinite;margin-bottom:16px;"></div>
+        <div style="font-weight:700;color:#f8fafc;font-size:18px;letter-spacing:0.02em;margin-bottom:6px;">Norma Jurídica</div>
+        <div style="font-size:12px;color:#64748b;">Carregando portal de notícias e legislação...</div>
+        <style>@keyframes nj-spin{to{transform:rotate(360deg)}}</style>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

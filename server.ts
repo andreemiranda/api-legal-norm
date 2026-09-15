@@ -18,7 +18,11 @@ if (fs.existsSync(path.join(process.cwd(), ".env"))) {
 
 const app = express();
 app.set("trust proxy", 1); // Confia no proxy reverso do Cloud Run (Evita erro do express-rate-limit com X-Forwarded-For)
-const PORT = 3000;
+
+// Configuração do PORT: no Render.com a porta é fornecida via process.env.PORT (ex: 10000).
+// No ambiente AI Studio / dev local, RENDER não está definido, mantendo estritamente 3000.
+const isRender = process.env.RENDER === "true" || Boolean(process.env.RENDER_SERVICE_ID);
+const PORT = isRender && process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Security Middleware
 app.use(helmet({
@@ -28,8 +32,21 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://pagead2.googlesyndication.com", "https://www.googletagmanager.com", "https://apis.google.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", "data:", "https:", "http:"],
-      connectSrc: ["'self'", "ws:", "wss:", "https://*.firebaseio.com", "https://*.googleapis.com", "https://api-news-media.netlify.app", "https://pagead2.googlesyndication.com", "https://googleads.g.doubleclick.net", "https://www.google-analytics.com"],
-      frameSrc: ["'self'", "https://googleads.g.doubleclick.net", "https://normajuridica.com"],
+      connectSrc: [
+        "'self'",
+        "ws:",
+        "wss:",
+        "https://*.firebaseio.com",
+        "https://*.googleapis.com",
+        "https://api-news-media.netlify.app",
+        "https://pagead2.googlesyndication.com",
+        "https://googleads.g.doubleclick.net",
+        "https://www.google-analytics.com",
+        "https://api.open-meteo.com",
+        "https://*.onrender.com",
+        "https://*.render.com"
+      ],
+      frameSrc: ["'self'", "https://googleads.g.doubleclick.net", "https://normajuridica.com", "https://*.onrender.com", "https://*.render.com"],
       fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
       frameAncestors: ["*"]
     }
@@ -43,16 +60,33 @@ app.use(helmet({
 // CORS Configuration
 app.use(cors({
   origin: (origin, callback) => {
+    // Requisições sem header Origin (scripts do mesmo domínio, cURL, server-to-server)
     if (!origin) return callback(null, true);
-    const allowed = (process.env.CORS_ALLOWED_ORIGINS || process.env.NEXT_PUBLIC_DOMAIN || process.env.DOMAIN || "https://normajuridica.com").split(",");
-    if (process.env.NODE_ENV !== "production" || allowed.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
+
+    // Permite qualquer subdomínio do Render.com, Cloud Run, localhost ou do próprio portal
+    if (
+      origin.includes("onrender.com") ||
+      origin.includes("render.com") ||
+      origin.includes("run.app") ||
+      origin.includes("localhost") ||
+      origin.includes("127.0.0.1") ||
+      origin.includes("normajuridica") ||
+      origin.includes("netlify.app")
+    ) {
+      return callback(null, true);
     }
+
+    const envOrigins = (process.env.CORS_ALLOWED_ORIGINS || process.env.NEXT_PUBLIC_DOMAIN || process.env.DOMAIN || "").split(",").map(s => s.trim()).filter(Boolean);
+    if (process.env.NODE_ENV !== "production" || envOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // Não lançar erro 500 para requisições com origin não permitido; rejeita suavemente sem quebrar o Express
+    return callback(null, false);
   },
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  methods: ["GET", "POST", "OPTIONS", "HEAD"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  credentials: true,
 }));
 
 // Rate Limiting
@@ -1342,11 +1376,22 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    // Resolução resiliente da pasta dist (para execuções a partir da raiz ou de dentro de dist)
+    const distPath = fs.existsSync(path.join(process.cwd(), "dist", "index.html"))
+      ? path.join(process.cwd(), "dist")
+      : fs.existsSync(path.join(__dirname, "index.html"))
+      ? __dirname
+      : path.join(process.cwd(), "dist");
+
     app.use(express.static(distPath, { index: false }));
     app.get("*", async (req, res) => {
       try {
-        let html = await fs.promises.readFile(path.join(distPath, "index.html"), "utf-8");
+        const indexPath = path.join(distPath, "index.html");
+        if (!fs.existsSync(indexPath)) {
+          return res.status(200).send("<!doctype html><html><head><meta charset='utf-8'><title>Norma Jurídica</title></head><body style='background:#0b1329;color:#fff;font-family:sans-serif;text-align:center;padding:50px;'><h2>Carregando portal Norma Jurídica...</h2><p>Por favor, recarregue a página em alguns instantes.</p></body></html>");
+        }
+
+        let html = await fs.promises.readFile(indexPath, "utf-8");
         const siteUrl = getSiteUrl(req);
         const reqPath = req.path;
         
