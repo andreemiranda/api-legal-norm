@@ -28,12 +28,16 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://pagead2.googlesyndication.com", "https://www.googletagmanager.com", "https://apis.google.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", "data:", "https:", "http:"],
-      connectSrc: ["'self'", "https://*.firebaseio.com", "https://*.googleapis.com", "https://api-news-media.netlify.app", "https://pagead2.googlesyndication.com", "https://googleads.g.doubleclick.net", "https://www.google-analytics.com"],
+      connectSrc: ["'self'", "ws:", "wss:", "https://*.firebaseio.com", "https://*.googleapis.com", "https://api-news-media.netlify.app", "https://pagead2.googlesyndication.com", "https://googleads.g.doubleclick.net", "https://www.google-analytics.com"],
       frameSrc: ["'self'", "https://googleads.g.doubleclick.net", "https://normajuridica.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
+      frameAncestors: ["*"]
     }
   },
   crossOriginEmbedderPolicy: false,
+  crossOriginOpenerPolicy: false,
+  crossOriginResourcePolicy: false,
+  xFrameOptions: false,
 }));
 
 // CORS Configuration
