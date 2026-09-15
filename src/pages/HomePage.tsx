@@ -113,19 +113,7 @@ export const HomePage: React.FC<HomePageProps> = ({
               <h2 className="font-serif text-xl font-bold text-white tracking-wide">
                 {selectedCategory === "Todas" ? "Últimas Notícias e Reportagens" : `Editoria: ${selectedCategory}`}
               </h2>
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-950/80 text-blue-300 border border-blue-800/60">
-                {allNewsCount} notícias disponíveis
-              </span>
-              {categoryTagCount > 0 && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800/80 text-slate-300 border border-slate-700/60">
-                  <Tag className="w-3 h-3 text-blue-400" />
-                  {categoryTagCount} tags
-                </span>
-              )}
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Organizadas das mais recentes primeiro • Mínimo 250 matérias por editoria com indexação temática
-            </p>
           </div>
 
           {/* Controls: View toggle & Active Filter Chips */}

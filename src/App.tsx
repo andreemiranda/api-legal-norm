@@ -79,9 +79,11 @@ function MainPortal() {
   const [carouselSeed, setCarouselSeed] = useState<number>(() => getRandomSeed());
   const [radarSeed, setRadarSeed] = useState<number>(() => getRandomSeed() + 500);
   const [sidebarSeed, setSidebarSeed] = useState<number>(() => getRandomSeed() + 1000);
+  const [feedSeed, setFeedSeed] = useState<number>(() => getRandomSeed() + 2000);
 
   const handleRotateNextRadar = () => setRadarSeed((prev) => prev + Math.floor(Math.random() * 9999) + 1);
   const handleRotateNextCarousel = () => setCarouselSeed((prev) => prev + Math.floor(Math.random() * 9999) + 1);
+  const handleRotateFeed = () => setFeedSeed((prev) => prev + Math.floor(Math.random() * 9999) + 1);
 
   // Check query parameter for admin metrics (?admin=metrics or ?metrics=1)
   useEffect(() => {
@@ -152,10 +154,11 @@ function MainPortal() {
     };
   }, []);
 
-  // Category feed guaranteeing at least 250 items per category with rich tag counts
+  // Category feed guaranteeing at least 250 items per category with rich tag counts,
+  // and balanced rotation of all categories when viewing "Todas"
   const categoryFeed = useMemo(() => {
-    return buildCategoryFeed(selectedCategory, news);
-  }, [selectedCategory, news]);
+    return buildCategoryFeed(selectedCategory, news, feedSeed);
+  }, [selectedCategory, news, feedSeed]);
 
   // Filtered and sorted news (Category feed + tag filter + source + search)
   const filteredNews = useMemo(() => {
@@ -179,15 +182,19 @@ function MainPortal() {
       return result;
     }
 
-    // Default Sort: Chronological (newest first)
-    result.sort((a, b) => {
-      const timeA = a.pubDate ? new Date(a.pubDate).getTime() : 0;
-      const timeB = b.pubDate ? new Date(b.pubDate).getTime() : 0;
-      return timeB - timeA;
-    });
+    // If specific category is selected, sort strictly chronologically (newest first)
+    // If "Todas", the balanced rotating feed has already balanced all categories across pages
+    // and ordered each page strictly from newest to oldest!
+    if (selectedCategory && selectedCategory !== "Todas") {
+      result.sort((a, b) => {
+        const timeA = a.pubDate ? new Date(a.pubDate).getTime() : 0;
+        const timeB = b.pubDate ? new Date(b.pubDate).getTime() : 0;
+        return timeB - timeA;
+      });
+    }
 
     return result;
-  }, [categoryFeed, selectedTag, selectedSourceId, searchTerm]);
+  }, [categoryFeed, selectedCategory, selectedTag, selectedSourceId, searchTerm]);
 
   // Paginated items for the current page
   const totalPages = Math.ceil(filteredNews.length / perPage) || 1;
@@ -248,6 +255,13 @@ function MainPortal() {
     setSelectedTag(null);
     setCurrentPage(1);
     setSelectedSourceId(undefined);
+
+    // When clicking "Todas" or switching categories, refresh the rotation seeds
+    // so every update/click produces a fresh permutation allowing all categories to cycle on page 1
+    handleRotateFeed();
+    handleRotateNextCarousel();
+    handleRotateNextRadar();
+
     if (currentView !== "home") {
       setCurrentView("home");
     }

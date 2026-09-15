@@ -737,14 +737,15 @@ const getNewsHandler = (req: express.Request, res: express.Response) => {
   const search = (req.query.search as string || req.query.q as string || "").trim();
   const tagFilter = (req.query.tag as string || "").trim().toLowerCase();
   const sourceId = req.query.source ? parseInt(req.query.source as string) : undefined;
+  const seed = req.query.seed ? parseInt(req.query.seed as string) : undefined;
 
   let feedResult: { total: number; tag_count: number; tags: any[]; items: any[] };
 
   if (category && category !== "Todas" && category !== "todas") {
     // Guarantees minimum 250 items for the requested category
-    feedResult = buildCategoryFeed(category, allNewsData);
+    feedResult = buildCategoryFeed(category, allNewsData, seed);
   } else {
-    feedResult = buildCategoryFeed("Todas", allNewsData);
+    feedResult = buildCategoryFeed("Todas", allNewsData, seed);
   }
 
   let filtered = [...feedResult.items];

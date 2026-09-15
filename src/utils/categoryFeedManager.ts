@@ -3,6 +3,7 @@
 
 import { NewsItem } from "../types";
 import { extractTagsForNewsItem, computeTagCounts, TagCount } from "./tagEngine";
+import { shuffleArray, getNewsTimestamp } from "./editorialRotation";
 
 export const MIN_CATEGORY_FEED_ITEMS = 250;
 
@@ -26,28 +27,92 @@ function normalize(str: string): string {
 }
 
 /**
+ * Builds an interleaved, category-balanced rotating feed for "Todas as Notícias".
+ * Ensures every category rotates across pages (each page has a diverse blend of categories),
+ * with all categories having an equal opportunity to appear on Page 1 upon page load,
+ * category switch, or refresh, and each individual page/category is sorted strictly
+ * from newest to oldest.
+ */
+export function buildBalancedRotatingFeed(
+  allNews: NewsItem[],
+  seed?: number,
+  pageSize = 12
+): NewsItem[] {
+  if (!allNews || allNews.length === 0) return [];
+
+  // Group all items by category
+  const grouped: Record<string, NewsItem[]> = {};
+  for (const item of allNews) {
+    const cat = item.category?.trim() || "Notícias Gerais";
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(item);
+  }
+
+  // Ensure items within each category are sorted strictly newest first
+  for (const cat of Object.keys(grouped)) {
+    grouped[cat].sort((a, b) => getNewsTimestamp(b) - getNewsTimestamp(a));
+  }
+
+  // Randomly shuffle the category sequence based on the seed
+  const categories = Object.keys(grouped);
+  const shuffledCategories = shuffleArray(categories, seed);
+
+  // Category pointers for round-robin interleaving
+  const pointers: Record<string, number> = {};
+  for (const cat of shuffledCategories) {
+    pointers[cat] = 0;
+  }
+
+  const result: NewsItem[] = [];
+  const totalItems = allNews.length;
+
+  // Fill page by page: each page of `pageSize` items receives items from different categories
+  while (result.length < totalItems) {
+    const pageItems: NewsItem[] = [];
+    let addedInRound = true;
+
+    while (pageItems.length < pageSize && addedInRound) {
+      addedInRound = false;
+      for (const cat of shuffledCategories) {
+        if (pointers[cat] < grouped[cat].length) {
+          pageItems.push(grouped[cat][pointers[cat]]);
+          pointers[cat]++;
+          addedInRound = true;
+          if (pageItems.length >= pageSize) break;
+        }
+      }
+    }
+
+    if (pageItems.length === 0) break;
+
+    // Strict chronological ordering within each page (newest to oldest)
+    pageItems.sort((a, b) => getNewsTimestamp(b) - getNewsTimestamp(a));
+    result.push(...pageItems);
+  }
+
+  return result;
+}
+
+/**
  * Builds or complements a category feed so it contains at least 250 items,
  * with comprehensive tag counts and strict chronological sorting.
  */
 export function buildCategoryFeed(
   categoryName: string,
-  allAvailableNews: NewsItem[]
+  allAvailableNews: NewsItem[],
+  rotationSeed?: number
 ): CategoryFeedResult {
   const normTarget = normalize(categoryName);
   const isAll = !categoryName || normTarget === "todas" || normTarget === "all";
 
-  // If "Todas", return all sorted news with tag counts
+  // If "Todas", generate a balanced rotating feed where all categories rotate across all pages
+  // and each page is strictly newest-to-oldest!
   if (isAll) {
-    const taggedItems = allAvailableNews.map((item) => ({
+    const rotatingNews = buildBalancedRotatingFeed(allAvailableNews, rotationSeed, 12);
+    const taggedItems = rotatingNews.map((item) => ({
       ...item,
       tags: item.tags && item.tags.length > 0 ? item.tags : extractTagsForNewsItem(item),
     }));
-
-    taggedItems.sort((a, b) => {
-      const timeA = new Date(a.pubDate || 0).getTime();
-      const timeB = new Date(b.pubDate || 0).getTime();
-      return timeB - timeA;
-    });
 
     const tags = computeTagCounts(taggedItems);
     return {
