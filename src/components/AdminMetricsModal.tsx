@@ -197,85 +197,112 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
           </div>
 
           <h3 className="font-serif text-lg font-bold text-white text-center mb-1">
-            Acesso Restrito a Administradores
+            Página de Métricas Restrita
           </h3>
           <p className="text-xs text-slate-300 leading-relaxed text-center mb-5">
-            A página de Meta & Tráfego é reservada exclusivamente aos administradores cadastrados no sistema.
+            A visualização das métricas, estatísticas de tráfego e limites é restrita exclusivamente aos administradores contidos na lista de administradores autorizados.
           </p>
 
+          {/* Caso esteja conectado mas o e-mail não seja administrador */}
           {authState.isAuthenticated && !authState.isAdmin && (
-            <div className="mb-5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200">
-              <p className="font-semibold text-amber-300 mb-0.5">Conta Google sem Permissão Admin:</p>
-              <p>
-                Você está conectado como <strong>{authState.displayName || authState.email}</strong> (Leitor).
-                Apenas administradores podem visualizar o painel de métricas.
+            <div className="mb-5 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-amber-300">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Conta Sem Permissão de Administrador</span>
+              </div>
+              <p className="leading-relaxed">
+                Você está conectado com o e-mail <strong className="text-white">{authState.email}</strong>, que <strong>não consta</strong> na lista de administradores autorizados. Por segurança, a página de métricas não está acessível.
               </p>
+              <div className="pt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await firebaseAuthService.signOut();
+                    setShowDirectInput(false);
+                    setLoginError(null);
+                  }}
+                  className="w-full py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-xs font-semibold transition-colors cursor-pointer text-center"
+                >
+                  Conectar com Outra Conta Google
+                </button>
+              </div>
             </div>
           )}
 
           {loginError && (
-            <div className="mb-5 p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-200">
-              <p className="font-semibold text-rose-300 mb-0.5">Restrição de Acesso:</p>
-              <p>{loginError}</p>
+            <div className="mb-5 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-200 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <span>{loginError}</span>
             </div>
           )}
 
-          {/* Exclusive Google Sign-in Button */}
-          <button
-            type="button"
-            onClick={handleGoogleGateLogin}
-            disabled={loginLoading}
-            className="w-full py-3 px-4 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-xs border border-slate-300 shadow-md transition-all cursor-pointer flex items-center justify-center gap-3 active:scale-[0.98]"
-          >
-            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-              <path
-                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                fill="#4285F4"
-              />
-              <path
-                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                fill="#34A853"
-              />
-              <path
-                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                fill="#FBBC05"
-              />
-              <path
-                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                fill="#EA4335"
-              />
-            </svg>
-            <span>{loginLoading ? "Autenticando..." : "Entrar com Conta Google de Administrador"}</span>
-          </button>
-
-          {showDirectInput && (
-            <form onSubmit={handleConfirmGoogleAdminEmail} className="mt-4 pt-4 border-t border-slate-800 space-y-3">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-400 mb-1 flex items-center gap-1">
-                  <Mail className="w-3.5 h-3.5 text-blue-400" />
-                  E-mail da sua Conta Google de Administrador
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={googleEmailInput}
-                  onChange={(e) => setGoogleEmailInput(e.target.value)}
-                  placeholder="administrador@gmail.com"
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-950 border border-slate-800 focus:border-blue-500 text-white outline-none"
-                />
-              </div>
+          {/* Botão de Entrada Exclusivo com Conta Google */}
+          {(!authState.isAuthenticated || showDirectInput) && (
+            <div className="space-y-3">
               <button
-                type="submit"
+                type="button"
+                onClick={handleGoogleGateLogin}
                 disabled={loginLoading}
-                className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                className="w-full py-3 px-4 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-xs border border-slate-300 shadow-md transition-all cursor-pointer flex items-center justify-center gap-3 active:scale-[0.98]"
               >
-                <span>Validar Acesso Administrativo</span>
+                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                  <path
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    fill="#4285F4"
+                  />
+                  <path
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    fill="#34A853"
+                  />
+                  <path
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                    fill="#FBBC05"
+                  />
+                  <path
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                    fill="#EA4335"
+                  />
+                </svg>
+                <span>{loginLoading ? "Autenticando..." : "Entrar com o Google"}</span>
               </button>
-            </form>
+
+              {showDirectInput && (
+                <form onSubmit={handleConfirmGoogleAdminEmail} className="pt-3 border-t border-slate-800 space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-400 mb-1 flex items-center gap-1">
+                      <Mail className="w-3.5 h-3.5 text-blue-400" />
+                      E-mail da sua Conta Google de Administrador
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={googleEmailInput}
+                      onChange={(e) => setGoogleEmailInput(e.target.value)}
+                      placeholder="administrador@gmail.com"
+                      className="w-full px-3 py-2 text-xs rounded-xl bg-slate-950 border border-slate-800 focus:border-blue-500 text-white outline-none"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={loginLoading}
+                    className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <span>Validar Permissão de Administrador</span>
+                  </button>
+                </form>
+              )}
+            </div>
           )}
 
-          <div className="mt-5 pt-4 border-t border-slate-800 text-[11px] text-slate-500 text-center">
-            A autenticação deste site é realizada exclusivamente com Contas Google.
+          <div className="mt-5 pt-4 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
+            <span>Acesso restrito via Conta Google</span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-blue-400 hover:underline cursor-pointer"
+            >
+              Voltar ao Portal
+            </button>
           </div>
         </div>
       </div>

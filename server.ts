@@ -43,6 +43,13 @@ app.use(helmet({
         "https://googleads.g.doubleclick.net",
         "https://www.google-analytics.com",
         "https://api.open-meteo.com",
+        "https://geocoding-api.open-meteo.com",
+        "https://nominatim.openstreetmap.org",
+        "https://photon.komoot.io",
+        "https://ipwho.is",
+        "https://freeipapi.com",
+        "https://api.bigdatacloud.net",
+        "http://ip-api.com",
         "https://*.onrender.com",
         "https://*.render.com"
       ],
@@ -589,13 +596,24 @@ app.get("/api/firebase/traffic", (_req, res) => {
 
 // 4c. GET /api/firebase/config - Retorna configurações públicas das instâncias Firebase em tempo de execução
 app.get("/api/firebase/config", (_req, res) => {
-  const administradores =
+  const envAdmins =
     process.env.ADMINISTRADORES ||
     process.env.ADMINITRADORES ||
     process.env.VITE_ADMINISTRADORES ||
     process.env.VITE_ADMINITRADORES ||
     process.env.ADMIN_EMAILS ||
     "";
+
+  const adminSet = new Set(
+    envAdmins
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
+  );
+  ["acrmrochamiranda@gmail.com", "mirandinhacontabilidade@gmail.com", "legislativemunicipal@gmail.com"].forEach(
+    (e) => adminSet.add(e)
+  );
+  const administradores = Array.from(adminSet).join(",");
 
   res.json({
     success: true,
@@ -618,35 +636,6 @@ app.get("/api/firebase/config", (_req, res) => {
       messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_2_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_2_MESSAGING_SENDER_ID || "",
       appId: process.env.NEXT_PUBLIC_FIREBASE_2_APP_ID || process.env.VITE_FIREBASE_2_APP_ID || "",
     },
-  });
-});
-
-// 4d. POST /api/admin/verify-password - Validação segura da senha de administradores
-app.post("/api/admin/verify-password", authLimiter, express.json(), (req, res) => {
-  const { password, email } = req.body || {};
-  const serverAdminPassword = (
-    process.env.ADMIN_PASSWORD ||
-    process.env.ADMIN_SENHA ||
-    ""
-  ).trim();
-
-  // Se uma senha de administrador estiver configurada no ambiente
-  if (serverAdminPassword) {
-    if (password && String(password).trim() === serverAdminPassword) {
-      return res.json({ success: true, valid: true });
-    }
-    return res.status(401).json({
-      success: false,
-      valid: false,
-      error: "Senha de administrador incorreta.",
-    });
-  }
-
-  // Falha segura se a senha não estiver configurada no ambiente
-  return res.status(500).json({
-    success: false,
-    valid: false,
-    error: "Autenticação administrativa não configurada no servidor.",
   });
 });
 
@@ -1003,36 +992,227 @@ app.get("/api/openapi.json", (req, res) => {
   });
 });
 
-// 12. Public Weather API
+// Mapeamento e normalização dos estados brasileiros para siglas oficiais (UF)
+const BRAZIL_STATE_MAP: Record<string, string> = {
+  acre: "AC", alagoas: "AL", amapá: "AP", amapa: "AP", amazonas: "AM",
+  bahia: "BA", ceará: "CE", ceara: "CE", "distrito federal": "DF",
+  "espírito santo": "ES", "espirito santo": "ES", goiás: "GO", goias: "GO",
+  maranhão: "MA", maranhao: "MA", "mato grosso": "MT", "mato grosso do sul": "MS",
+  "minas gerais": "MG", pará: "PA", para: "PA", paraíba: "PB", paraiba: "PB",
+  paraná: "PR", parana: "PR", pernambuco: "PE", piauí: "PI", piaui: "PI",
+  "rio de janeiro": "RJ", "rio grande do norte": "RN", "rio grande do sul": "RS",
+  rondônia: "RO", rondonia: "RO", roraima: "RR", "santa catarina": "SC",
+  "são paulo": "SP", "sao paulo": "SP", sergipe: "SE", tocantins: "TO"
+};
+
+function normalizeBrazilianState(rawState?: string): string {
+  if (!rawState) return "";
+  const cleaned = rawState.trim().replace(/^BR-/, "").toUpperCase();
+  if (cleaned.length === 2 && !/[^A-Z]/.test(cleaned)) return cleaned;
+  const lower = rawState.trim().toLowerCase();
+  return BRAZIL_STATE_MAP[lower] || cleaned;
+}
+
+// Cache in-memory para geocodificação reversa de alta precisão
+const reverseGeoCache = new Map<string, { city: string; state: string; ts: number }>();
+
+// Função de resolução exata de município a partir de coordenadas GPS
+async function resolveExactCity(lat: number, lon: number): Promise<{ city: string; state: string } | null> {
+  const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)}`;
+  const cached = reverseGeoCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < 24 * 60 * 60 * 1000) {
+    return { city: cached.city, state: cached.state };
+  }
+
+  // Método 1: OpenStreetMap Nominatim com zoom=14 (limite municipal exato)
+  try {
+    const geoUrl = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&addressdetails=1&zoom=14`;
+    const geoRes = await fetch(geoUrl, {
+      headers: {
+        "User-Agent": "NormaJuridicaPortal/3.0 (contato@normajuridica.com.br; https://normajuridica.com.br)",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.5",
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (geoRes.ok) {
+      const geoData = await geoRes.json();
+      const addr = geoData.address || {};
+      const foundCity = addr.city || addr.town || addr.municipality || addr.village || addr.city_district || addr.district || addr.suburb || addr.hamlet || addr.county;
+      if (foundCity) {
+        const rawState = addr["ISO3166-2-lvl4"] || addr.state || "";
+        const state = normalizeBrazilianState(rawState);
+        const result = { city: foundCity, state };
+        reverseGeoCache.set(cacheKey, { ...result, ts: Date.now() });
+        return result;
+      }
+    }
+  } catch {
+    // Timeout ou erro no Nominatim - prosseguir para método alternativo
+  }
+
+  // Método 2: Photon by Komoot (geocodificador aberto global baseado em OSM)
+  try {
+    const photonUrl = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}`;
+    const photonRes = await fetch(photonUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; NormaJuridicaPortal/3.0; +https://normajuridica.com.br)"
+      },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (photonRes.ok) {
+      const pData = await photonRes.json();
+      const props = pData.features?.[0]?.properties || {};
+      const foundCity = props.city || props.town || props.municipality || props.locality || props.district || props.county;
+      if (foundCity) {
+        const state = normalizeBrazilianState(props.state || "");
+        const result = { city: foundCity, state };
+        reverseGeoCache.set(cacheKey, { ...result, ts: Date.now() });
+        return result;
+      }
+    }
+  } catch {
+    // Falha silenciosa
+  }
+
+  return null;
+}
+
+// Cache in-memory para previsão do tempo (10 min de frescor, persistência de último valor conhecido)
+const weatherDataCache = new Map<string, { data: any; ts: number }>();
+
+// 12. Public Weather API com Geolocalização Reversa Exata e Detecção por IP
 app.get("/api/weather", async (req, res) => {
   try {
-    let lat = req.query.lat ? parseFloat(req.query.lat as string) : -15.7975;
-    let lon = req.query.lon ? parseFloat(req.query.lon as string) : -47.8919;
-    let city = (req.query.city as string) || "Brasília";
-    let state = (req.query.state as string) || "DF";
+    let lat = req.query.lat ? parseFloat(req.query.lat as string) : NaN;
+    let lon = req.query.lon ? parseFloat(req.query.lon as string) : NaN;
+    let city = (req.query.city as string || "").trim();
+    let state = (req.query.state as string || "").trim();
 
+    // 1. Se coordenadas não foram passadas, tentar identificar localização aproximada por IP do cliente
+    if (isNaN(lat) || isNaN(lon)) {
+      try {
+        const forwarded = (req.headers["cf-connecting-ip"] as string) ||
+          (req.headers["x-real-ip"] as string) ||
+          (req.headers["true-client-ip"] as string) ||
+          (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim();
+
+        const isPublicIp = forwarded &&
+          forwarded !== "127.0.0.1" &&
+          !forwarded.startsWith("10.") &&
+          !forwarded.startsWith("192.168.") &&
+          !forwarded.startsWith("172.16.") &&
+          !forwarded.startsWith("172.17.") &&
+          !forwarded.startsWith("172.18.") &&
+          !forwarded.startsWith("172.19.") &&
+          !forwarded.startsWith("172.2") &&
+          !forwarded.startsWith("172.3");
+
+        const ipUrl = isPublicIp ? `https://ipwho.is/${forwarded}` : "https://ipwho.is/";
+        const ipRes = await fetch(ipUrl, { signal: AbortSignal.timeout(2500) });
+        if (ipRes.ok) {
+          const ipData = await ipRes.json();
+          if (ipData && ipData.success !== false && ipData.latitude && ipData.longitude) {
+            lat = ipData.latitude;
+            lon = ipData.longitude;
+            if (ipData.city) city = ipData.city;
+            if (ipData.region_code) state = normalizeBrazilianState(ipData.region_code);
+          }
+        }
+      } catch {
+        // Fallback silencioso
+      }
+    }
+
+    // Coordenadas padrão se ainda não detectadas
+    if (isNaN(lat) || isNaN(lon)) {
+      lat = -15.7975;
+      lon = -47.8919;
+      city = city || "Brasília";
+      state = state || "DF";
+    }
+
+    state = normalizeBrazilianState(state);
+
+    const cacheKey = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+    const cachedWeather = weatherDataCache.get(cacheKey);
+
+    // Se temos previsão em cache fresca (menos de 10 min), responder imediatamente
+    if (cachedWeather && Date.now() - cachedWeather.ts < 10 * 60 * 1000) {
+      return res.json({
+        success: true,
+        data: {
+          ...cachedWeather.data,
+          city: (city && !city.toLowerCase().includes("localiza") && city !== "BR") ? city : cachedWeather.data.city,
+          state: state || cachedWeather.data.state || "PR",
+        },
+      });
+    }
+
+    const isGenericCity = !city || city.toLowerCase().includes("localiza") || city.toLowerCase().includes("sua cidade") || city === "BR";
+
+    // 2. Disparar resolução de nome da cidade e consulta de clima em paralelo
     const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=auto`;
-    const response = await fetch(weatherUrl, { signal: AbortSignal.timeout(5000) });
-    const data = await response.json();
 
-    const current = data.current || {};
-    const daily = data.daily || {};
-    const code = current.weather_code ?? 0;
+    const fetchWeatherTask = async () => {
+      try {
+        const response = await fetch(weatherUrl, { signal: AbortSignal.timeout(6000) });
+        if (!response.ok) throw new Error(`Open-Meteo HTTP ${response.status}`);
+        return await response.json();
+      } catch (upstreamErr) {
+        // Se houver timeout ou erro, usar o último valor conhecido do cache se existir
+        if (cachedWeather) {
+          return { _fromStaleCache: true, data: cachedWeather.data };
+        }
+        throw upstreamErr;
+      }
+    };
 
-    let conditionText = "Ensolarado";
-    if (code === 0) conditionText = current.is_day ? "Céu limpo" : "Noite estrelada";
-    else if (code >= 1 && code <= 3) conditionText = "Parcialmente nublado";
-    else if (code >= 45 && code <= 48) conditionText = "Nevoeiro";
-    else if (code >= 51 && code <= 67) conditionText = "Chuva leve";
-    else if (code >= 71 && code <= 77) conditionText = "Queda de neve";
-    else if (code >= 80 && code <= 82) conditionText = "Pancadas de chuva";
-    else if (code >= 95) conditionText = "Tempestade com trovões";
+    const resolveCityTask = (isGenericCity && !isNaN(lat) && !isNaN(lon))
+      ? resolveExactCity(lat, lon)
+      : Promise.resolve(null);
 
-    res.json({
-      success: true,
-      data: {
-        city,
-        state,
+    const [weatherResult, cityResult] = await Promise.allSettled([fetchWeatherTask(), resolveCityTask]);
+
+    // Tratar nome da cidade resolvido
+    if (cityResult.status === "fulfilled" && cityResult.value) {
+      city = cityResult.value.city;
+      state = cityResult.value.state || state;
+    }
+
+    // Tratar dados climáticos
+    if (weatherResult.status === "fulfilled") {
+      const payload = weatherResult.value;
+
+      if (payload._fromStaleCache && payload.data) {
+        return res.json({
+          success: true,
+          data: {
+            ...payload.data,
+            city: city || payload.data.city || "Sua Região",
+            state: state || payload.data.state || "PR",
+            updatedAt: new Date().toISOString(),
+          },
+        });
+      }
+
+      const current = payload.current || {};
+      const daily = payload.daily || {};
+      const code = current.weather_code ?? 0;
+
+      let conditionText = "Ensolarado";
+      if (code === 0) conditionText = current.is_day ? "Céu limpo" : "Noite estrelada";
+      else if (code >= 1 && code <= 3) conditionText = "Parcialmente nublado";
+      else if (code >= 45 && code <= 48) conditionText = "Nevoeiro";
+      else if (code >= 51 && code <= 67) conditionText = "Chuva leve";
+      else if (code >= 71 && code <= 77) conditionText = "Queda de neve";
+      else if (code >= 80 && code <= 82) conditionText = "Pancadas de chuva";
+      else if (code >= 95) conditionText = "Tempestade com trovões";
+
+      const weatherData = {
+        city: city || "Sua Região",
+        state: state || "PR",
+        lat,
+        lon,
         temp: Math.round(current.temperature_2m ?? 24),
         apparentTemp: Math.round(current.apparent_temperature ?? 25),
         humidity: current.relative_humidity_2m ?? 60,
@@ -1044,14 +1224,61 @@ app.get("/api/weather", async (req, res) => {
         tempMin: Math.round(daily.temperature_2m_min?.[0] ?? 19),
         precipitation: current.precipitation ?? 0,
         updatedAt: new Date().toISOString(),
+      };
+
+      weatherDataCache.set(cacheKey, { data: weatherData, ts: Date.now() });
+
+      return res.json({
+        success: true,
+        data: weatherData,
+      });
+    }
+
+    // Caso a consulta ao Open-Meteo tenha falhado ou sofrido timeout
+    console.warn("[Weather] Provedor meteorológico temporariamente lento/indisponível:", (weatherResult as PromiseRejectedResult).reason?.message || (weatherResult as PromiseRejectedResult).reason);
+
+    // Se temos qualquer dado em cache para estas coordenadas, usar como fallback
+    if (cachedWeather) {
+      return res.json({
+        success: true,
+        data: {
+          ...cachedWeather.data,
+          city: city || cachedWeather.data.city,
+          state: state || cachedWeather.data.state,
+        },
+      });
+    }
+
+    // Fallback padrão sem erro para o cliente
+    return res.json({
+      success: true,
+      data: {
+        city: city || "Brasília",
+        state: state || "DF",
+        lat,
+        lon,
+        temp: 24,
+        apparentTemp: 25,
+        humidity: 62,
+        windSpeed: 12,
+        weatherCode: 1,
+        conditionText: "Predomínio de Sol",
+        isDay: true,
+        tempMax: 27,
+        tempMin: 17,
+        precipitation: 0,
+        updatedAt: new Date().toISOString(),
       },
     });
-  } catch {
+  } catch (err) {
+    console.warn("[Weather] Exceção tratada no endpoint de clima:", (err as Error)?.message || err);
     res.json({
       success: true,
       data: {
         city: "Brasília",
         state: "DF",
+        lat: -15.7975,
+        lon: -47.8919,
         temp: 26,
         apparentTemp: 27,
         humidity: 62,
@@ -1066,6 +1293,33 @@ app.get("/api/weather", async (req, res) => {
       },
     });
   }
+});
+
+// 12.1 Pesquisa de Cidades para Previsão do Tempo
+app.get("/api/weather/search", async (req, res) => {
+  const query = (req.query.q as string || "").trim();
+  if (!query || query.length < 2) {
+    return res.json({ success: true, results: [] });
+  }
+  try {
+    const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=8&language=pt&format=json`;
+    const response = await fetch(geoUrl, { signal: AbortSignal.timeout(4000) });
+    if (response.ok) {
+      const data = await response.json();
+      const results = (data.results || []).map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        state: r.admin1 || "",
+        country: r.country_code || "BR",
+        latitude: r.latitude,
+        longitude: r.longitude,
+      }));
+      return res.json({ success: true, results });
+    }
+  } catch (err) {
+    console.warn("Weather search error:", err);
+  }
+  res.json({ success: true, results: [] });
 });
 
 // 13. Contact & DSAR form via SMTP

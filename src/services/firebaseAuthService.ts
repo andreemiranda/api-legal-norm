@@ -1,12 +1,10 @@
 // Authentication Service for Norma Jurídica
-// Supports Google Sign-In for regular readers and administrators,
-// as well as password authentication for administrators.
+// Supports exclusive Google Sign-In for readers and administrators.
+// Access to the metrics page is strictly restricted to accounts in the administradores variable.
 // Visitors browse news freely without authentication.
 
 import { useState, useEffect } from "react";
 import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
   GoogleAuthProvider,
@@ -36,7 +34,7 @@ export interface UserSessionData {
   displayName: string;
   photoURL?: string;
   isAdmin: boolean;
-  provider: "google" | "password" | "firebase";
+  provider: "google" | "firebase";
 }
 
 /**
@@ -68,14 +66,18 @@ export function getAdminEmailsList(): string[] {
     }
   }
 
-  if (!raw || typeof raw !== "string" || !raw.trim()) {
-    raw = "acrmrochamiranda@gmail.com,mirandinhacontabilidade@gmail.com,legislativemunicipal@gmail.com";
-  }
+  const adminSet = new Set<string>(
+    (raw || "")
+      .split(",")
+      .map((e: string) => e.trim().toLowerCase())
+      .filter(Boolean)
+  );
 
-  return raw
-    .split(",")
-    .map((e: string) => e.trim().toLowerCase())
-    .filter(Boolean);
+  ["acrmrochamiranda@gmail.com", "mirandinhacontabilidade@gmail.com", "legislativemunicipal@gmail.com"].forEach(
+    (e) => adminSet.add(e)
+  );
+
+  return Array.from(adminSet);
 }
 
 /**
@@ -118,6 +120,9 @@ class FirebaseAuthService {
         const data = await res.json();
         if (data.administradores && typeof data.administradores === "string") {
           (window as any).__NJ_ADMINS__ = data.administradores;
+          if (this.customUser) {
+            this.customUser.isAdmin = isEmailAdmin(this.customUser.email);
+          }
           this.notifyListeners();
         }
       }
@@ -134,11 +139,12 @@ class FirebaseAuthService {
           localStorage.getItem("nj_admin_session");
         if (saved) {
           const parsed = JSON.parse(saved);
-          // Re-evaluate admin status in case env updated
-          const isAdmin = isEmailAdmin(parsed.email) || Boolean(parsed.isAdmin);
+          // O status de administrador é estritamente avaliado contra a variável de administradores
+          const isAdmin = isEmailAdmin(parsed.email);
           this.customUser = {
             ...parsed,
             isAdmin,
+            provider: "google",
           };
         }
       }
@@ -200,7 +206,7 @@ class FirebaseAuthService {
 
     if (this.customUser) {
       const email = this.customUser.email;
-      const isAdmin = isEmailAdmin(email) || Boolean(this.customUser.isAdmin);
+      const isAdmin = isEmailAdmin(email);
       return {
         user: null,
         isAuthenticated: true,
@@ -322,127 +328,6 @@ class FirebaseAuthService {
         error: err?.message || "Popup não pôde ser aberto.",
       };
     }
-  }
-
-  /**
-   * Administrator Authentication via Email and Password
-   * Validates against backend /api/admin/verify-password and administrator credentials
-   */
-  public async signInWithAdminPassword(
-    email: string,
-    password: string,
-    displayName?: string
-  ): Promise<{ success: boolean; error?: string }> {
-    const cleanEmail = (email || "").trim().toLowerCase();
-    if (!cleanEmail) {
-      return { success: false, error: "Informe o e-mail de administrador." };
-    }
-
-    if (!isEmailAdmin(cleanEmail)) {
-      return {
-        success: false,
-        error: "Acesso restrito: este e-mail não possui permissão de administrador autorizada no sistema.",
-      };
-    }
-
-    if (!password || password.trim().length === 0) {
-      return { success: false, error: "Informe a senha de administrador." };
-    }
-
-    // 1. Try server password verification endpoint
-    try {
-      const resp = await fetch("/api/admin/verify-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: cleanEmail, password: password.trim() }),
-      });
-
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.valid) {
-          const resolvedName = displayName || cleanEmail.split("@")[0] || "Administrador";
-          const resolvedPhoto = this.generateGoogleAvatar(resolvedName, cleanEmail);
-          const sessionData: UserSessionData = {
-            uid: `admin_${Date.now()}`,
-            email: cleanEmail,
-            displayName: resolvedName,
-            photoURL: resolvedPhoto,
-            isAdmin: true,
-            provider: "password",
-          };
-
-          this.customUser = sessionData;
-          this.currentUser = null;
-          try {
-            localStorage.setItem("nj_user_session", JSON.stringify(sessionData));
-            localStorage.setItem("nj_admin_session", JSON.stringify(sessionData));
-          } catch {}
-
-          this.notifyListeners();
-          this.logSessionEvent(sessionData, "admin_password_login");
-          return { success: true };
-        }
-      } else {
-        const errData = await resp.json().catch(() => ({}));
-        return {
-          success: false,
-          error: errData.error || "Senha de administrador incorreta.",
-        };
-      }
-    } catch {
-      // Fallback for offline/local environment checking VITE_ADMIN_PASSWORD
-      const metaEnv = typeof import.meta !== "undefined" ? (import.meta as any).env : {};
-      const envPass = (metaEnv?.VITE_ADMIN_PASSWORD || metaEnv?.ADMIN_PASSWORD || "").trim();
-
-      if (envPass && password.trim() !== envPass) {
-        return { success: false, error: "Senha de administrador incorreta." };
-      }
-    }
-
-    // Direct Administrator session with audit logging
-    const resolvedName = displayName || cleanEmail.split("@")[0] || "Administrador";
-    const resolvedPhoto = this.generateGoogleAvatar(resolvedName, cleanEmail);
-    const sessionData: UserSessionData = {
-      uid: `admin_${Date.now()}`,
-      email: cleanEmail,
-      displayName: resolvedName,
-      photoURL: resolvedPhoto,
-      isAdmin: true,
-      provider: "password",
-    };
-
-    this.customUser = sessionData;
-    this.currentUser = null;
-    try {
-      localStorage.setItem("nj_user_session", JSON.stringify(sessionData));
-      localStorage.setItem("nj_admin_session", JSON.stringify(sessionData));
-    } catch {}
-
-    this.notifyListeners();
-    this.logSessionEvent(sessionData, "admin_password_login");
-    return { success: true };
-  }
-
-  /**
-   * Direct Administrator login for Norma Jurídica editorial management
-   */
-  public signInAsAdmin(email?: string, displayName: string = "Administrador"): void {
-    const adminEmail = email || getAdminEmailsList()[0] || "legislativemunicipal@gmail.com";
-    const photo = this.generateGoogleAvatar(displayName, adminEmail);
-    const adminUser: UserSessionData = {
-      uid: `admin_${Date.now()}`,
-      email: adminEmail,
-      displayName,
-      photoURL: photo,
-      isAdmin: true,
-      provider: "password",
-    };
-    this.customUser = adminUser;
-    try {
-      localStorage.setItem("nj_user_session", JSON.stringify(adminUser));
-      localStorage.setItem("nj_admin_session", JSON.stringify(adminUser));
-    } catch {}
-    this.notifyListeners();
   }
 
   /**
