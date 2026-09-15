@@ -1,3 +1,4 @@
+import { updateClientSEO } from "./utils/seoUtils";
 import React, { useState, useEffect, useMemo } from "react";
 import { NewsItem, CategoryItem, NewsSource } from "./types";
 import { ConsentProvider } from "./context/ConsentContext";
@@ -334,27 +335,75 @@ function MainPortal() {
 
   // Sync document.title for SEO and browser tabs
   useEffect(() => {
+    let title = "Norma Jurídica - Portal de Notícias e Legislação";
+    let desc = "Portal de Notícias Avançado e Responsivo é uma plataforma digital completa de jornalismo moderno, desenvolvida com foco em alta performance e conteúdo jornalístico.";
+    let url = window.location.href;
+    let img = window.location.origin + "/og-image.jpg";
+    let jsonLd: any = {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Norma Jurídica",
+      "url": window.location.origin,
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": window.location.origin + "/?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    };
+
     if (currentView === "post" && selectedPost) {
-      document.title = `${selectedPost.title} - Norma Jurídica`;
+      title = `${selectedPost.title} - Norma Jurídica`;
+      desc = selectedPost.description || desc;
+      img = selectedPost.thumbnail || selectedPost.imageUrl || img;
+      if (img.startsWith("/")) img = window.location.origin + img;
+      jsonLd = {
+        "@context": "https://schema.org",
+        "@type": "NewsArticle",
+        "headline": title,
+        "image": [img],
+        "datePublished": selectedPost.pubDate,
+        "author": [{
+          "@type": "Person",
+          "name": selectedPost.author || "Norma Jurídica",
+          "url": window.location.origin
+        }],
+        "publisher": {
+          "@type": "Organization",
+          "name": "Norma Jurídica",
+          "logo": {
+            "@type": "ImageObject",
+            "url": window.location.origin + "/logo.jpg"
+          }
+        }
+      };
     } else if (currentView === "home") {
       if (selectedCategory && selectedCategory !== "Todas") {
-        document.title = `${selectedCategory} - Notícias - Norma Jurídica`;
+        title = `${selectedCategory} - Notícias - Norma Jurídica`;
+        jsonLd = {
+          "@context": "https://schema.org",
+          "@type": "CollectionPage",
+          "name": title,
+          "description": desc,
+          "url": url
+        };
       } else {
-        document.title = "Norma Jurídica - Portal de Notícias e Legislação";
+        title = "Norma Jurídica - Portal de Notícias e Legislação";
       }
     } else if (currentView === "privacidade") {
-      document.title = "Política de Privacidade - Norma Jurídica";
+      title = "Política de Privacidade - Norma Jurídica";
     } else if (currentView === "termos") {
-      document.title = "Termos de Uso - Norma Jurídica";
+      title = "Termos de Uso - Norma Jurídica";
     } else if (currentView === "cookies") {
-      document.title = "Política de Cookies - Norma Jurídica";
+      title = "Política de Cookies - Norma Jurídica";
     } else if (currentView === "lgpd") {
-      document.title = "Portal LGPD - Norma Jurídica";
+      title = "Portal LGPD - Norma Jurídica";
     } else if (currentView === "consentimento") {
-      document.title = "Preferências de Privacidade - Norma Jurídica";
+      title = "Preferências de Privacidade - Norma Jurídica";
     } else if (currentView === "contato") {
-      document.title = "Fale Conosco - Norma Jurídica";
+      title = "Fale Conosco - Norma Jurídica";
     }
+
+    updateClientSEO(title, desc, url, img, jsonLd);
   }, [currentView, selectedPost, selectedCategory]);
 
   // Related posts for current post

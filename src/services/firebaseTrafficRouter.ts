@@ -26,13 +26,13 @@ export type TrafficSource = "primary" | "mirror" | "api";
 export type StorageTarget = "primary" | "mirror" | "both";
 
 // Operational Limits: 1.9 GB Storage & 20 GB Traffic
-export const TOTAL_STORAGE_LIMIT_BYTES = 1932735283; // ~1.9 GB
-export const PER_DB_STORAGE_THRESHOLD = 950 * 1024 * 1024; // 950 MB per instance
+export const TOTAL_STORAGE_LIMIT_BYTES = parseInt(import.meta.env.VITE_FIREBASE_STORAGE_LIMIT_BYTES || "1932735283", 10);
+export const PER_DB_STORAGE_THRESHOLD = Math.floor(TOTAL_STORAGE_LIMIT_BYTES / 2) - (15 * 1024 * 1024); // ~950 MB per instance if total is 1.9GB
 export const ONE_GB_IN_BYTES = 1024 * 1024 * 1024;
 export const NINE_FIFTY_MB_IN_BYTES = PER_DB_STORAGE_THRESHOLD;
 
-export const TOTAL_TRAFFIC_LIMIT_BYTES = 21474836480; // ~20 GB
-export const PER_DB_TRAFFIC_THRESHOLD = Math.floor(9.8 * 1024 * 1024 * 1024); // ~9.8 GB per instance
+export const TOTAL_TRAFFIC_LIMIT_BYTES = parseInt(import.meta.env.VITE_FIREBASE_TRAFFIC_LIMIT_BYTES || "21474836480", 10);
+export const PER_DB_TRAFFIC_THRESHOLD = Math.floor(TOTAL_TRAFFIC_LIMIT_BYTES / 2) - (200 * 1024 * 1024); // ~9.8 GB per instance if total is 20GB
 export const TEN_GB_IN_BYTES = 10 * 1024 * 1024 * 1024;
 export const NINE_POINT_FIVE_GB_IN_BYTES = PER_DB_TRAFFIC_THRESHOLD;
 

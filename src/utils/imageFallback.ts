@@ -1,3 +1,6 @@
+import { verifyNewsImage } from "./imageVerification";
+import { createEditorialFallbackSvg } from "./imageOptimizer";
+
 export function extractThumbnail(item: {
   thumbnail?: string;
   imageUrl?: string;
@@ -5,27 +8,27 @@ export function extractThumbnail(item: {
   content?: string;
   description?: string;
   category?: string;
+  title?: string;
+  link?: string;
   id?: string | number;
-}): string | undefined {
-  if (item.thumbnail && item.thumbnail.startsWith("http")) {
-    return item.thumbnail;
-  }
-  
-  if (item.imageUrl && item.imageUrl.startsWith("http")) {
-    return item.imageUrl;
-  }
+}): string {
+  const candidates = [item.thumbnail, item.imageUrl, item.image];
 
-  if (item.image && item.image.startsWith("http")) {
-    return item.image;
+  for (const c of candidates) {
+    if (c && typeof c === "string" && c.startsWith("http")) {
+      const ver = verifyNewsImage(c, item as any);
+      if (ver.valid) return c;
+    }
   }
 
   // Try extracting img tag from content or description
   const combined = (item.content || "") + " " + (item.description || "");
   const match = combined.match(/<img[^>]+src=["']([^"']+)["']/i);
   if (match && match[1] && match[1].startsWith("http")) {
-    return match[1];
+    const ver = verifyNewsImage(match[1], item as any);
+    if (ver.valid) return match[1];
   }
   
-  // No Unsplash. Return undefined to show no image or let the component handle it.
-  return undefined;
+  // Return editorial SVG fallback
+  return createEditorialFallbackSvg(item.category || "Notícia", item.title);
 }

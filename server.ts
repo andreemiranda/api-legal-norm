@@ -2,24 +2,60 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import nodemailer from "nodemailer";
+import helmet from "helmet";
+import cors from "cors";
+import rateLimit from "express-rate-limit";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { buildCategoryFeed } from "./src/utils/categoryFeedManager";
 import { extractTagsForNewsItem, computeTagCounts } from "./src/utils/tagEngine";
+import { verifyNewsImage, resolveAuthenticNewsImage } from "./src/utils/imageVerification";
 
-// Automatically load .env, with .env.example fallback so all 478 variables are loaded without manual steps
+// Automatically load .env
 if (fs.existsSync(path.join(process.cwd(), ".env"))) {
   dotenv.config({ path: path.join(process.cwd(), ".env") });
-}
-if (fs.existsSync(path.join(process.cwd(), ".env.example"))) {
-  dotenv.config({ path: path.join(process.cwd(), ".env.example") });
 }
 
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Security Middleware
+app.use(helmet({
+  contentSecurityPolicy: false, // Disabled to prevent blocking AdSense, Firebase Auth, and external images
+  crossOriginEmbedderPolicy: false,
+}));
+
+// CORS Configuration
+app.use(cors({
+  origin: process.env.NODE_ENV === "production" ? [process.env.NEXT_PUBLIC_DOMAIN || "https://normajuridica.com"] : "*",
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
+
+// Rate Limiting
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // Limit each IP to 1000 requests per windowMs
+  message: { success: false, error: "Muitas requisições, tente novamente mais tarde." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20, // stricter limit for auth
+  message: { success: false, valid: false, error: "Muitas tentativas, tente novamente mais tarde." }
+});
+
+const contactLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // 10 messages per hour per IP
+  message: { success: false, error: "Muitas mensagens enviadas, aguarde algumas horas." }
+});
+
+app.use("/api/", apiLimiter);
+
+app.use(express.json({ limit: "1mb" })); // Limite de payload
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
 // Cached in-memory collections
 let categoriesData: Array<{ category: string; count: number }> = [];
@@ -92,20 +128,9 @@ function cleanSlug(item: any): string {
 }
 
 function extractImage(item: any): string | null {
-  if (item.thumbnail && typeof item.thumbnail === "string" && item.thumbnail.startsWith("http") && !item.thumbnail.includes("/logo.jpg") && !item.thumbnail.includes("/favicon") && !item.thumbnail.includes("/og-image")) return item.thumbnail;
-  if (item.imageUrl && typeof item.imageUrl === "string" && item.imageUrl.startsWith("http") && !item.imageUrl.includes("/logo.jpg") && !item.imageUrl.includes("/favicon") && !item.imageUrl.includes("/og-image")) return item.imageUrl;
-  if (item.image && typeof item.image === "string" && item.image.startsWith("http") && !item.image.includes("/logo.jpg") && !item.image.includes("/favicon") && !item.image.includes("/og-image")) return item.image;
-  if (item.enclosure) {
-    if (typeof item.enclosure === "string" && item.enclosure.startsWith("http")) return item.enclosure;
-    if (item.enclosure.url && typeof item.enclosure.url === "string" && item.enclosure.url.startsWith("http")) return item.enclosure.url;
-  }
-  if (item.content) {
-    const match = item.content.match(/<img[^>]+src=["'](https?:\/\/[^"']+)["']/i);
-    if (match && match[1] && !match[1].includes("/logo.jpg")) return match[1];
-  }
-  if (item.description) {
-    const match = item.description.match(/<img[^>]+src=["'](https?:\/\/[^"']+)["']/i);
-    if (match && match[1] && !match[1].includes("/logo.jpg")) return match[1];
+  const resolved = resolveAuthenticNewsImage(item);
+  if (!resolved.isFallback && resolved.verifiedImage) {
+    return resolved.verifiedImage;
   }
   return null;
 }
@@ -139,24 +164,16 @@ const RTDB_PRIMARY = "https://legal-norm2-default-rtdb.firebaseio.com/news.json"
 const RTDB_MIRROR = "https://legal-norm3-default-rtdb.firebaseio.com/news.json";
 const UPSTREAM_API = "https://api-news-media.netlify.app/api/news";
 
-const STORAGE_LIMIT_BYTES = 1932735283; // ~1.9 GB
-const TRAFFIC_LIMIT_BYTES = 21474836480; // ~20 GB
+const STORAGE_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_STORAGE_LIMIT_BYTES || process.env.FIREBASE_STORAGE_LIMIT_BYTES || "1932735283", 10);
+const TRAFFIC_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_TRAFFIC_LIMIT_BYTES || process.env.FIREBASE_TRAFFIC_LIMIT_BYTES || "21474836480", 10);
 
 function processAndApplySobrescricao(rawNews: any[]) {
   if (!Array.isArray(rawNews) || rawNews.length === 0) return;
 
   const seen = new Set<string>();
-  let poolIdx = 0;
 
   let processed = rawNews
     .map((item: any) => {
-      let img = extractImage(item);
-      if (!img && mediaPoolData.length > 0) {
-        const match = mediaPoolData.find((m) => m.category === item.category);
-        img = match ? match.url : mediaPoolData[poolIdx % mediaPoolData.length].url;
-        poolIdx++;
-      }
-
       const decodedTitle = cleanEditorialText(decodeHtml(item.title));
       const cleanDesc = cleanEditorialText(decodeHtml(item.description));
       const cleanContent = cleanEditorialText(item.content);
@@ -164,14 +181,27 @@ function processAndApplySobrescricao(rawNews: any[]) {
         ? item.tags
         : extractTagsForNewsItem({ title: decodedTitle, description: cleanDesc, content: cleanContent, category: item.category });
 
+      const itemWithCleanText = {
+        ...item,
+        title: decodedTitle,
+        description: cleanDesc,
+        content: cleanContent,
+      };
+
+      // Triple verification: Fonte, Slug e Texto Alt
+      const resolved = resolveAuthenticNewsImage(itemWithCleanText);
+      const verifiedImgUrl = resolved.isFallback ? "" : (resolved.verifiedImage || "");
+      const verifiedAlt = resolved.verifiedAlt || decodedTitle;
+
       return {
         ...item,
         title: decodedTitle,
         description: cleanDesc,
         content: cleanContent,
-        thumbnail: img || extractImage(item) || "",
-        imageUrl: img || extractImage(item) || "",
-        image: img || extractImage(item) || "",
+        thumbnail: verifiedImgUrl,
+        imageUrl: verifiedImgUrl,
+        image: verifiedImgUrl,
+        imageAlt: verifiedAlt,
         slug: cleanSlug({ ...item, title: decodedTitle }),
         tags,
       };
@@ -505,40 +535,40 @@ app.get("/api/firebase/config", (_req, res) => {
     process.env.VITE_ADMINISTRADORES ||
     process.env.VITE_ADMINITRADORES ||
     process.env.ADMIN_EMAILS ||
-    "mirandinhacontabilidade@gmail.com,acrmrochamiranda@gmail.com,legislativemunicipal@gmail.com";
+    "";
 
   res.json({
     success: true,
     administradores,
     primary: {
-      apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || "AIzaSyCAQ6UdqNC3_spKkjH79Rf7s9SwBMN98Fw",
-      authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || "legal-norm2.firebaseapp.com",
-      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL || "https://legal-norm2-default-rtdb.firebaseio.com",
-      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || "legal-norm2",
-      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || "legal-norm2.firebasestorage.app",
-      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "878021514659",
-      appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || "1:878021514659:web:966a382c6c7ffeb6a9f616",
+      apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || "",
+      authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || "",
+      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL || "",
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || "",
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || "",
+      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+      appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || "",
     },
     mirror: {
-      apiKey: process.env.NEXT_PUBLIC_FIREBASE_2_API_KEY || process.env.VITE_FIREBASE_2_API_KEY || "AIzaSyBgpGn4rTTZET8DaT9wJL0zmwcYv_9x6gs",
-      authDomain: process.env.NEXT_PUBLIC_FIREBASE_2_AUTH_DOMAIN || process.env.VITE_FIREBASE_2_AUTH_DOMAIN || "legal-norm3.firebaseapp.com",
-      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_2_DATABASE_URL || process.env.VITE_FIREBASE_2_DATABASE_URL || "https://legal-norm3-default-rtdb.firebaseio.com",
-      projectId: process.env.NEXT_PUBLIC_FIREBASE_2_PROJECT_ID || process.env.VITE_FIREBASE_2_PROJECT_ID || "legal-norm3",
-      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_2_STORAGE_BUCKET || process.env.VITE_FIREBASE_2_STORAGE_BUCKET || "legal-norm3.firebasestorage.app",
-      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_2_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_2_MESSAGING_SENDER_ID || "907491581027",
-      appId: process.env.NEXT_PUBLIC_FIREBASE_2_APP_ID || process.env.VITE_FIREBASE_2_APP_ID || "1:907491581027:web:e45c8faad065d6b8fe6c56",
+      apiKey: process.env.NEXT_PUBLIC_FIREBASE_2_API_KEY || process.env.VITE_FIREBASE_2_API_KEY || "",
+      authDomain: process.env.NEXT_PUBLIC_FIREBASE_2_AUTH_DOMAIN || process.env.VITE_FIREBASE_2_AUTH_DOMAIN || "",
+      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_2_DATABASE_URL || process.env.VITE_FIREBASE_2_DATABASE_URL || "",
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_2_PROJECT_ID || process.env.VITE_FIREBASE_2_PROJECT_ID || "",
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_2_STORAGE_BUCKET || process.env.VITE_FIREBASE_2_STORAGE_BUCKET || "",
+      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_2_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_2_MESSAGING_SENDER_ID || "",
+      appId: process.env.NEXT_PUBLIC_FIREBASE_2_APP_ID || process.env.VITE_FIREBASE_2_APP_ID || "",
     },
   });
 });
 
 // 4d. POST /api/admin/verify-password - Validação segura da senha de administradores
-app.post("/api/admin/verify-password", express.json(), (req, res) => {
+app.post("/api/admin/verify-password", authLimiter, express.json(), (req, res) => {
   const { password, email } = req.body || {};
   const serverAdminPassword = (
     process.env.ADMIN_PASSWORD ||
     process.env.VITE_ADMIN_PASSWORD ||
     process.env.ADMIN_SENHA ||
-    "Br@s!Iweb2027"
+    ""
   ).trim();
 
   // Se uma senha de administrador estiver configurada no ambiente
@@ -553,15 +583,11 @@ app.post("/api/admin/verify-password", express.json(), (req, res) => {
     });
   }
 
-  // Se a senha ainda não foi preenchida no .env, aceita senha com no mínimo 6 caracteres
-  if (password && String(password).trim().length >= 4) {
-    return res.json({ success: true, valid: true });
-  }
-
-  return res.status(400).json({
+  // Falha segura se a senha não estiver configurada no ambiente
+  return res.status(500).json({
     success: false,
     valid: false,
-    error: "Informe uma senha válida de administrador.",
+    error: "Autenticação administrativa não configurada no servidor.",
   });
 });
 
@@ -619,7 +645,7 @@ app.get("/api/images/:id", async (req, res) => {
   // Try upstream
   try {
     const upstream = await fetch(
-      `https://api-news-media.netlify.app/api/images/${idStr}?api_key=bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd&limit=15`
+      `https://api-news-media.netlify.app/api/images/${idStr}?api_key=${process.env.NEWS_API_KEY}&limit=15`
     );
     if (upstream.ok) {
       const data = await upstream.json();
@@ -786,7 +812,7 @@ const sourcesMonitoringState = {
 async function monitorUpstreamSources() {
   try {
     const upstreamRes = await fetch(
-      "https://api-news-media.netlify.app/api/news?api_key=bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd&limit=30"
+      `https://api-news-media.netlify.app/api/news?api_key=${process.env.NEWS_API_KEY}&limit=30`
     );
     if (upstreamRes.ok) {
       const data: any = await upstreamRes.json();
@@ -834,7 +860,7 @@ app.get("/api/monitoring/sources", (_req: express.Request, res: express.Response
   });
 });
 
-app.post("/api/monitoring/sync", async (_req: express.Request, res: express.Response) => {
+app.post("/api/monitoring/sync", authLimiter, async (_req: express.Request, res: express.Response) => {
   await monitorUpstreamSources();
   res.json({
     success: true,
@@ -976,7 +1002,7 @@ app.get("/api/weather", async (req, res) => {
 });
 
 // 13. Contact & DSAR form via SMTP
-app.post("/api/contact", async (req, res) => {
+app.post("/api/contact", contactLimiter, async (req, res) => {
   const { name, email, phone, subject, category, message, lgpdConsent, requestType, cpf } = req.body;
 
   if (!name || !email || !message) {
@@ -986,12 +1012,19 @@ app.post("/api/contact", async (req, res) => {
     });
   }
 
-  const smtpHost = process.env.SMTP_HOST || "smtp.gmail.com";
+  const smtpHost = process.env.SMTP_HOST || "";
   const smtpPort = parseInt(process.env.SMTP_PORT || "587");
-  const smtpUser = process.env.SMTP_USER || process.env.SMTP_FROM_EMAIL || "contato@normajuridica.com.br";
-  const googleAppPassword = process.env.GOOGLE_APP_PASSWORD || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || "dyzwuezxdjzokubc";
-  const toEmail = process.env.SMTP_TO_EMAIL || process.env.SMTP_TO || "legislativemunicipal@gmail.com";
-  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM || smtpUser || "legislativemunicipal@gmail.com";
+  const smtpUser = process.env.SMTP_USER || process.env.SMTP_FROM_EMAIL || "";
+  const googleAppPassword = process.env.GOOGLE_APP_PASSWORD || process.env.SMTP_PASS || process.env.SMTP_PASSWORD || "";
+  const toEmail = process.env.SMTP_TO_EMAIL || process.env.SMTP_TO || "";
+  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM || smtpUser || "";
+
+  if (!smtpHost || !smtpUser || !googleAppPassword || !toEmail) {
+    return res.status(500).json({
+      success: false,
+      error: "Serviço de e-mail não configurado no servidor.",
+    });
+  }
 
   const isLgpdRequest = !!requestType;
   const emailTitle = isLgpdRequest
@@ -1269,9 +1302,134 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (_req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+    app.use(express.static(distPath, { index: false }));
+    app.get("*", async (req, res) => {
+      try {
+        let html = await fs.promises.readFile(path.join(distPath, "index.html"), "utf-8");
+        const siteUrl = getSiteUrl(req);
+        const reqPath = req.path;
+        
+        // Find if this is a post route
+        let title = "Norma Jurídica - Portal de Notícias e Legislação";
+        let desc = "Portal de Notícias Avançado e Responsivo é uma plataforma digital completa de jornalismo moderno, desenvolvida com foco em alta performance e conteúdo jornalístico.";
+        let img = siteUrl + "/og-image.jpg";
+        let url = siteUrl + reqPath;
+        let type = "website";
+        let author = "Norma Jurídica";
+        let publishedTime = "";
+        let modifiedTime = "";
+        let section = "";
+        let robots = "index, follow";
+
+        let jsonLd: any = {
+          "@context": "https://schema.org",
+          "@type": "WebSite",
+          "name": "Norma Jurídica",
+          "url": siteUrl,
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": siteUrl + "/?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+          }
+        };
+
+        if (reqPath.startsWith("/post/")) {
+          const item = allNewsData.find(n => n.slug === reqPath.substring(1));
+          if (item) {
+            title = (item.title || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            desc = (item.description || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            img = item.thumbnail || item.imageUrl || img;
+            if (img.startsWith("/")) img = siteUrl + img;
+            type = "article";
+            author = item.author || "Norma Jurídica";
+            publishedTime = item.pubDate || new Date().toISOString();
+            section = item.category || "";
+            
+            jsonLd = {
+              "@context": "https://schema.org",
+              "@type": "NewsArticle",
+              "headline": title,
+              "image": [img],
+              "datePublished": publishedTime,
+              "author": [{
+                "@type": "Person",
+                "name": author,
+                "url": siteUrl
+              }],
+              "publisher": {
+                "@type": "Organization",
+                "name": "Norma Jurídica",
+                "logo": {
+                  "@type": "ImageObject",
+                  "url": siteUrl + "/logo.jpg"
+                }
+              }
+            };
+          } else {
+             // 404
+             robots = "noindex, follow";
+             title = "Página não encontrada - Norma Jurídica";
+          }
+        } else if (reqPath === "/politica-de-privacidade") {
+           title = "Política de Privacidade - Norma Jurídica";
+           desc = "Política de Privacidade do portal Norma Jurídica.";
+        } else if (reqPath === "/termos-de-uso") {
+           title = "Termos de Uso - Norma Jurídica";
+           desc = "Termos de Uso do portal Norma Jurídica.";
+        } else if (reqPath === "/lgpd") {
+           title = "LGPD - Norma Jurídica";
+           desc = "Lei Geral de Proteção de Dados no portal Norma Jurídica.";
+        } else if (reqPath === "/contato") {
+           title = "Contato - Norma Jurídica";
+           desc = "Entre em contato com o portal Norma Jurídica.";
+        }
+
+        const metaTags = `
+    <!-- SEO_META_TAGS_START -->
+    <title>${title}</title>
+    <meta name="description" content="${desc}" />
+    <meta name="author" content="${author}" />
+    <meta name="theme-color" content="#0b1329" />
+    <meta name="robots" content="${robots}" />
+    
+    <meta property="og:title" content="${title}" />
+    <meta property="og:description" content="${desc}" />
+    <meta property="og:type" content="${type}" />
+    <meta property="og:image" content="${img}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:alt" content="${title}" />
+    <meta property="og:site_name" content="Norma Jurídica" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta property="og:url" content="${url}" />
+    ${type === "article" ? `
+    <meta property="article:published_time" content="${publishedTime}" />
+    ${modifiedTime ? `<meta property="article:modified_time" content="${modifiedTime}" />` : ""}
+    <meta property="article:author" content="${author}" />
+    <meta property="article:section" content="${section}" />
+    ` : ""}
+    
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${title}" />
+    <meta name="twitter:description" content="${desc}" />
+    <meta name="twitter:image" content="${img}" />
+    <meta name="twitter:site" content="@normajuridica" />
+    
+    <link rel="canonical" href="${url}" />
+    <script type="application/ld+json">
+      ${JSON.stringify(jsonLd)}
+    </script>
+    <!-- SEO_META_TAGS_END -->`;
+
+        // Replace the existing block
+        html = html.replace(/<!-- SEO_META_TAGS_START -->[\s\S]*<!-- SEO_META_TAGS_END -->/i, metaTags);
+        
+        res.send(html);
+      } catch (err) {
+        console.error("Error serving index.html:", err);
+        res.sendFile(path.join(distPath, "index.html"));
+      }
     });
   }
 

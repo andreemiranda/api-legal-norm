@@ -235,7 +235,15 @@ export const WeatherBanner: React.FC = () => {
               <span>Máx: </span>
               <span className="text-amber-300 font-semibold">{weather.tempMax}°C</span>
             </div>
-            <span className="text-[10px] text-blue-300/80">Atualizado agora</span>
+            <span className="text-[10px] text-blue-300/80">
+              {new Date(weather.updatedAt).toLocaleString("pt-BR", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              }).replace(" ", " às ")}
+            </span>
           </div>
         </div>
       ) : null}

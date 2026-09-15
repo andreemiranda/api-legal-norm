@@ -2,6 +2,7 @@
 // STRICT RULE: News thumbnails and highlights must NEVER use images from the /public folder (such as /logo.jpg)
 
 import { NewsItem } from "../types";
+import { verifyNewsImage, resolveAuthenticNewsImage } from "./imageVerification";
 
 /**
  * Creates an elegant SVG data URI as an editorial fallback placeholder
@@ -112,66 +113,82 @@ export const getProxyImageUrl = toOptimizedImage;
 
 /**
  * Extracts a featured image, candidate chain, and secondary images from the post.
- * Exclusively prioritizes API source thumbnails and content images.
+ * STRICT: Every candidate is validated across Source, Slug, and Alt text to prevent swapped images.
  */
 export function extractPostImages(item: Partial<NewsItem>): {
   featuredImage: string;
   candidates: string[];
   otherImages: string[];
+  verifiedAlt: string;
 } {
   const images: string[] = [];
+  const cleanTitle = (item.title || "Notícia")
+    .replace(/^(\s*da\s+redação[\s:-]*|\s*da\s+redacao[\s:-]*)/gi, "")
+    .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
+    .trim();
 
-  const addCandidate = (candidate?: string | null) => {
+  const addCandidate = (candidate?: string | null, altCandidate?: string | null) => {
     if (candidate && isValidApiImageUrl(candidate)) {
-      const norm = normalizeImageUrl(candidate);
-      if (norm && !images.some((img) => normalizeImageUrl(img) === norm)) {
-        images.push(candidate.trim());
+      // Triple verification: Source, Slug, and Alt
+      const verification = verifyNewsImage(candidate, item, altCandidate);
+      if (verification.valid) {
+        const norm = normalizeImageUrl(candidate);
+        if (norm && !images.some((img) => normalizeImageUrl(img) === norm)) {
+          images.push(candidate.trim());
+        }
       }
     }
   };
 
-  // 1. Direct API / RSS fields
-  addCandidate(item.thumbnail);
-  addCandidate(item.imageUrl);
-  addCandidate(item.image);
-
-  // 2. Enclosure field (if present)
-  const enc = (item as any).enclosure;
-  if (enc) {
-    if (typeof enc === "string") {
-      addCandidate(enc);
-    } else if (typeof enc === "object" && enc.url) {
-      addCandidate(enc.url);
+  // 1. Check content HTML images first (often the most article-specific)
+  if (item.content) {
+    const matches = item.content.matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/gi);
+    for (const match of matches) {
+      const tagStr = match[0];
+      const src = match[1];
+      const altMatch = tagStr.match(/alt=["']([^"']*)["']/i);
+      addCandidate(src, altMatch ? altMatch[1] : undefined);
     }
   }
 
-  // 3. Extract from content HTML
-  if (item.content) {
-    const matches = item.content.matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+)["']/gi);
-    for (const match of matches) {
-      if (match[1]) {
-        addCandidate(match[1]);
-      }
+  // 2. Direct API / RSS fields
+  addCandidate(item.thumbnail, (item as any)?.imageAlt);
+  addCandidate(item.imageUrl, (item as any)?.imageAlt);
+  addCandidate(item.image, (item as any)?.imageAlt);
+
+  // 3. Enclosure field
+  const enc = (item as any)?.enclosure;
+  if (enc) {
+    if (typeof enc === "string") {
+      addCandidate(enc, cleanTitle);
+    } else if (typeof enc === "object" && enc.url) {
+      addCandidate(enc.url, enc.title || enc.description || cleanTitle);
     }
   }
 
   // 4. Extract from description HTML
   if (item.description) {
-    const matches = item.description.matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+)["']/gi);
+    const matches = item.description.matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/gi);
     for (const match of matches) {
-      if (match[1]) {
-        addCandidate(match[1]);
-      }
+      const tagStr = match[0];
+      const src = match[1];
+      const altMatch = tagStr.match(/alt=["']([^"']*)["']/i);
+      addCandidate(src, altMatch ? altMatch[1] : undefined);
     }
   }
 
-  // If we have at least one valid API image, that is our featured image
+  // Fallback vector SVG if no images passed the verification
   const fallbackSvg = createEditorialFallbackSvg(item.category || "Notícia", item.title);
   const featuredImage = images[0] || fallbackSvg;
   const candidates = images.length > 0 ? [...images, fallbackSvg] : [fallbackSvg];
   const otherImages = images.slice(1);
 
-  return { featuredImage, candidates, otherImages };
+  return {
+    featuredImage,
+    candidates,
+    otherImages,
+    verifiedAlt: cleanTitle,
+  };
 }
 
 /**
@@ -191,7 +208,8 @@ export function getPostThumbnail(item: Partial<NewsItem>): string {
  */
 export function processPostContent(
   rawHtml?: string,
-  featuredImageUrl?: string
+  featuredImageUrl?: string,
+  newsItem?: Partial<NewsItem>
 ): string {
   if (!rawHtml) return "";
 
@@ -214,6 +232,14 @@ export function processPostContent(
     if (imgMatch && imgMatch[1]) {
       const src = imgMatch[1];
       if (!isValidApiImageUrl(src)) return "";
+
+      // Check verification if newsItem is provided
+      if (newsItem) {
+        const altMatch = inner.match(/alt=["']([^"']*)["']/i);
+        const verification = verifyNewsImage(src, newsItem, altMatch ? altMatch[1] : undefined);
+        if (!verification.valid) return "";
+      }
+
       const norm = normalizeImageUrl(src);
       if (seenImages.has(norm)) {
         return ""; // Strip duplicate figure
@@ -230,6 +256,15 @@ export function processPostContent(
   // Rewrite standard <img> tags
   html = html.replace(/<img([^>]+)src=["']([^"']+)["']([^>]*)>/gi, (match, before, src, after) => {
     if (!isValidApiImageUrl(src)) return "";
+
+    // Check verification if newsItem is provided
+    if (newsItem) {
+      const combinedTag = `${before} ${after}`;
+      const altMatch = combinedTag.match(/alt=["']([^"']*)["']/i);
+      const verification = verifyNewsImage(src, newsItem, altMatch ? altMatch[1] : undefined);
+      if (!verification.valid) return "";
+    }
+
     const norm = normalizeImageUrl(src);
     if (seenImages.has(norm)) {
       return ""; // Strip duplicate image

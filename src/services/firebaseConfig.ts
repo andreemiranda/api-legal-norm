@@ -42,7 +42,7 @@ const savedMirror = getSavedConfig("nj_firebase_mirror");
 
 // 1. Primary Firebase Project Config (legal-norm2)
 export const primaryConfig: FirebaseInstanceConfig = {
-  apiKey: savedPrimary?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_API_KEY", "VITE_FIREBASE_API_KEY", "AIzaSyCAQ6UdqNC3_spKkjH79Rf7s9SwBMN98Fw"),
+  apiKey: savedPrimary?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_API_KEY", "VITE_FIREBASE_API_KEY", "YOUR_FIREBASE_API_KEY"),
   authDomain: savedPrimary?.authDomain || getEnv("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN", "VITE_FIREBASE_AUTH_DOMAIN", "legal-norm2.firebaseapp.com"),
   databaseURL: savedPrimary?.databaseURL || getEnv("NEXT_PUBLIC_FIREBASE_DATABASE_URL", "VITE_FIREBASE_DATABASE_URL", "https://legal-norm2-default-rtdb.firebaseio.com"),
   projectId: savedPrimary?.projectId || getEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "VITE_FIREBASE_PROJECT_ID", "legal-norm2"),
@@ -53,7 +53,7 @@ export const primaryConfig: FirebaseInstanceConfig = {
 
 // 2. Secondary / Mirror Firebase Project Config (legal-norm3)
 export const mirrorConfig: FirebaseInstanceConfig = {
-  apiKey: savedMirror?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_2_API_KEY", "VITE_FIREBASE_2_API_KEY", "AIzaSyBgpGn4rTTZET8DaT9wJL0zmwcYv_9x6gs"),
+  apiKey: savedMirror?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_2_API_KEY", "VITE_FIREBASE_2_API_KEY", "YOUR_FIREBASE_API_KEY"),
   authDomain: savedMirror?.authDomain || getEnv("NEXT_PUBLIC_FIREBASE_2_AUTH_DOMAIN", "VITE_FIREBASE_2_AUTH_DOMAIN", "legal-norm3.firebaseapp.com"),
   databaseURL: savedMirror?.databaseURL || getEnv("NEXT_PUBLIC_FIREBASE_2_DATABASE_URL", "VITE_FIREBASE_2_DATABASE_URL", "https://legal-norm3-default-rtdb.firebaseio.com"),
   projectId: savedMirror?.projectId || getEnv("NEXT_PUBLIC_FIREBASE_2_PROJECT_ID", "VITE_FIREBASE_2_PROJECT_ID", "legal-norm3"),
