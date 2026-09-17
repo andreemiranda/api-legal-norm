@@ -1,5 +1,5 @@
 import { updateClientSEO } from "./utils/seoUtils";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { NewsItem, CategoryItem, NewsSource } from "./types";
 import { ConsentProvider } from "./context/ConsentContext";
 import { Header } from "./components/Header";
@@ -10,6 +10,7 @@ import { CookieBanner } from "./components/CookieBanner";
 import { SourcesModal } from "./components/SourcesModal";
 import { AdminMetricsModal } from "./components/AdminMetricsModal";
 import { trafficRouter } from "./services/firebaseTrafficRouter";
+import { firebaseAuthService, AdminUserState } from "./services/firebaseAuthService";
 
 import { HomePage } from "./pages/HomePage";
 import { PostDetailPage } from "./pages/PostDetailPage";
@@ -74,6 +75,14 @@ function MainPortal() {
   const [isLoadingNews, setIsLoadingNews] = useState<boolean>(false);
   const [isSourcesModalOpen, setIsSourcesModalOpen] = useState<boolean>(false);
   const [isAdminMetricsOpen, setIsAdminMetricsOpen] = useState<boolean>(false);
+  const [authState, setAuthState] = useState<AdminUserState>(firebaseAuthService.getUserState());
+
+  useEffect(() => {
+    const unsub = firebaseAuthService.subscribe((state) => {
+      setAuthState(state);
+    });
+    return () => unsub();
+  }, []);
 
   // Random rotation seeds for intelligent section rotation across page refreshes (purely random, not alphabetical)
   const [carouselSeed, setCarouselSeed] = useState<number>(() => getRandomSeed());
@@ -90,71 +99,80 @@ function MainPortal() {
     try {
       const params = new URLSearchParams(window.location.search);
       if (params.get("admin") === "metrics" || params.get("metrics") === "1") {
-        setIsAdminMetricsOpen(true);
+        if (authState.isAdmin) {
+          setIsAdminMetricsOpen(true);
+        }
       }
     } catch {}
+  }, [authState.isAdmin]);
+
+  // Realtime news loader from upstream API with 30-minute auto-refresh & visibilitychange
+  const loadLatestRealtimeNews = useCallback(async (isSilent = false) => {
+    try {
+      if (!isSilent) setIsLoadingNews(true);
+      const newsRes = await fetch("/api/news?all=true");
+      if (newsRes.ok) {
+        const newsJson = await newsRes.json();
+        if (newsJson.success && Array.isArray(newsJson.data) && newsJson.data.length > 0) {
+          setNews(sortNewsChronological(deduplicateNews(newsJson.data)));
+          return;
+        }
+      }
+      // Hybrid fallback
+      const hybridResult = await trafficRouter.fetchNews();
+      if (hybridResult && hybridResult.news && hybridResult.news.length > 0) {
+        setNews(sortNewsChronological(deduplicateNews(hybridResult.news)));
+      }
+    } catch (err) {
+      console.warn("Realtime sync notice:", err);
+    } finally {
+      if (!isSilent) setIsLoadingNews(false);
+    }
   }, []);
 
-  // Hybrid news loading & Realtime synchronization (RTDB onValue + SSE + API sync silencioso)
   useEffect(() => {
-    // Inscrição em tempo real silenciosa (sem poluir o frontend com textos/avisos)
+    // 1. Initial news fetch directly from real-time server
+    loadLatestRealtimeNews();
+
+    // 2. Categories load
+    fetch("/api/categories")
+      .then((r) => r.json())
+      .then((catJson) => {
+        if (catJson.success && Array.isArray(catJson.data) && catJson.data.length > 0) {
+          setCategories(catJson.data);
+        }
+      })
+      .catch(() => {});
+
+    // 3. Realtime SSE / listener
     const unsubscribeRealtime = trafficRouter.subscribeToRealtimeNews((updatedNews) => {
       if (updatedNews && updatedNews.length > 0) {
         setNews(sortNewsChronological(deduplicateNews(updatedNews)));
       }
     });
 
-    async function loadData() {
-      try {
-        const catRes = await fetch("/api/categories");
-        if (catRes.ok) {
-          const catJson = await catRes.json();
-          if (catJson.success && Array.isArray(catJson.data) && catJson.data.length > 0) {
-            setCategories(catJson.data);
-          }
-        }
-      } catch (err) {
-        console.warn("Failed to load /api/categories:", err);
+    // 4. Automatic sync every 30 minutes
+    const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+    const intervalId = setInterval(() => {
+      loadLatestRealtimeNews(true);
+    }, THIRTY_MINUTES_MS);
+
+    // 5. Automatic sync when user returns to the tab (visibilitychange)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        loadLatestRealtimeNews(true);
       }
-
-      try {
-        setIsLoadingNews(true);
-
-        // 1. Attempt hybrid fetch through Firebase traffic router
-        const hybridResult = await trafficRouter.fetchNews();
-        if (hybridResult && hybridResult.news && hybridResult.news.length > 0) {
-          setNews(sortNewsChronological(deduplicateNews(hybridResult.news)));
-        } else {
-          // 2. Fallback to server endpoint
-          const newsRes = await fetch("/api/news?all=true");
-          if (newsRes.ok) {
-            const newsJson = await newsRes.json();
-            if (newsJson.success && Array.isArray(newsJson.data) && newsJson.data.length > 0) {
-              setNews(sortNewsChronological(deduplicateNews(newsJson.data)));
-            }
-          }
-        }
-
-        // Non-blocking visitor metric logging for administration
-        trafficRouter.logMetricEvent("visit", {
-          pathname: window.location.pathname,
-          referrer: document.referrer || "direct",
-        });
-      } catch (err) {
-        console.warn("Notice: Realtime sync connection notice:", err);
-      } finally {
-        setIsLoadingNews(false);
-      }
-    }
-
-    loadData();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       unsubscribeRealtime();
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [loadLatestRealtimeNews]);
 
-  // Category feed guaranteeing at least 250 items per category with rich tag counts,
+  // Category feed guaranteeing strict category isolation,
   // and balanced rotation of all categories when viewing "Todas"
   const categoryFeed = useMemo(() => {
     return buildCategoryFeed(selectedCategory, news, feedSeed);
@@ -162,6 +180,20 @@ function MainPortal() {
 
   // Filtered and sorted news (Category feed + tag filter + source + search)
   const filteredNews = useMemo(() => {
+    // Pesquisa: agora procura em TODO o acervo (por matérias), não só na editoria aberta!
+    if (searchTerm.trim()) {
+      let searched = searchNews(news, searchTerm);
+      if (selectedTag) {
+        searched = searched.filter((item) =>
+          item.tags?.some((t) => t.toLowerCase() === selectedTag.toLowerCase())
+        );
+      }
+      if (selectedSourceId) {
+        searched = searched.filter((item) => item.sourceId === selectedSourceId);
+      }
+      return searched;
+    }
+
     let result = [...categoryFeed.items];
 
     // Filter by Tag
@@ -176,12 +208,6 @@ function MainPortal() {
       result = result.filter((item) => item.sourceId === selectedSourceId);
     }
 
-    // Filter by Search Query with advanced scoring
-    if (searchTerm.trim()) {
-      result = searchNews(result, searchTerm);
-      return result;
-    }
-
     // If specific category is selected, sort strictly chronologically (newest first)
     // If "Todas", the balanced rotating feed has already balanced all categories across pages
     // and ordered each page strictly from newest to oldest!
@@ -194,7 +220,7 @@ function MainPortal() {
     }
 
     return result;
-  }, [categoryFeed, selectedCategory, selectedTag, selectedSourceId, searchTerm]);
+  }, [news, categoryFeed, selectedCategory, selectedTag, selectedSourceId, searchTerm]);
 
   // Paginated items for the current page
   const totalPages = Math.ceil(filteredNews.length / perPage) || 1;
@@ -349,18 +375,23 @@ function MainPortal() {
 
   // Sync document.title for SEO and browser tabs
   useEffect(() => {
+    const rawDomain = import.meta.env.VITE_PRIMARY_DOMAIN || window.location.origin;
+    const primaryDomain = rawDomain.replace(/\/$/, "");
+
     let title = "Norma Jurídica - Portal de Notícias e Legislação";
     let desc = "Portal de Notícias Avançado e Responsivo é uma plataforma digital completa de jornalismo moderno, desenvolvida com foco em alta performance e conteúdo jornalístico.";
-    let url = window.location.href;
-    let img = window.location.origin + "/og-image.jpg";
+    
+    // Constrói a URL usando o domínio principal (para canonical e og:url)
+    let url = primaryDomain + window.location.pathname + window.location.search;
+    let img = primaryDomain + "/og-image.jpg";
     let jsonLd: any = {
       "@context": "https://schema.org",
       "@type": "WebSite",
       "name": "Norma Jurídica",
-      "url": window.location.origin,
+      "url": primaryDomain,
       "potentialAction": {
         "@type": "SearchAction",
-        "target": window.location.origin + "/?q={search_term_string}",
+        "target": primaryDomain + "/?q={search_term_string}",
         "query-input": "required name=search_term_string"
       }
     };
@@ -369,7 +400,7 @@ function MainPortal() {
       title = `${selectedPost.title} - Norma Jurídica`;
       desc = selectedPost.description || desc;
       img = selectedPost.thumbnail || selectedPost.imageUrl || img;
-      if (img.startsWith("/")) img = window.location.origin + img;
+      if (img.startsWith("/")) img = primaryDomain + img;
       jsonLd = {
         "@context": "https://schema.org",
         "@type": "NewsArticle",
@@ -379,14 +410,14 @@ function MainPortal() {
         "author": [{
           "@type": "Person",
           "name": selectedPost.author || "Norma Jurídica",
-          "url": window.location.origin
+          "url": primaryDomain
         }],
         "publisher": {
           "@type": "Organization",
           "name": "Norma Jurídica",
           "logo": {
             "@type": "ImageObject",
-            "url": window.location.origin + "/logo.jpg"
+            "url": primaryDomain + "/logo.jpg"
           }
         }
       };
@@ -589,11 +620,13 @@ function MainPortal() {
         }}
       />
 
-      {/* 7. Admin Metrics & Firebase RTDB Modal */}
-      <AdminMetricsModal
-        isOpen={isAdminMetricsOpen}
-        onClose={() => setIsAdminMetricsOpen(false)}
-      />
+      {/* 7. Admin Metrics & Firebase RTDB Modal - Only visible to administrators */}
+      {isAdminMetricsOpen && authState.isAdmin && (
+        <AdminMetricsModal
+          isOpen={isAdminMetricsOpen}
+          onClose={() => setIsAdminMetricsOpen(false)}
+        />
+      )}
     </div>
   );
 }

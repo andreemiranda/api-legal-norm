@@ -26,6 +26,15 @@ export function updateClientSEO(
   setMeta("twitter:description", "name", description);
   setMeta("twitter:image", "name", imageUrl);
 
+  // Set canonical URL
+  let canonicalEl = document.querySelector('link[rel="canonical"]');
+  if (!canonicalEl) {
+    canonicalEl = document.createElement("link");
+    canonicalEl.setAttribute("rel", "canonical");
+    document.head.appendChild(canonicalEl);
+  }
+  canonicalEl.setAttribute("href", url);
+
   let scriptEl = document.querySelector('script[type="application/ld+json"]#client-json-ld');
   if (!scriptEl) {
     scriptEl = document.createElement("script");

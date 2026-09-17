@@ -46,9 +46,7 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"traffic" | "storage" | "sobrescricao" | "auth">("traffic");
 
-  // Direct login states for admin gate (Exclusive Google Auth)
-  const [googleEmailInput, setGoogleEmailInput] = useState("");
-  const [showDirectInput, setShowDirectInput] = useState(false);
+  // Login states for admin gate (Exclusive Google Auth)
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
 
@@ -131,32 +129,10 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
           setLoginError("Esta Conta Google não possui privilégios de administrador.");
         }
       } else {
-        setShowDirectInput(true);
+        setLoginError(nativeRes.error || "Janela de login fechada ou bloqueada. Tente novamente.");
       }
     } catch (err: any) {
       setLoginError(err.message || "Falha ao conectar com o Google.");
-    } finally {
-      setLoginLoading(false);
-    }
-  };
-
-  const handleConfirmGoogleAdminEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError(null);
-    setLoginLoading(true);
-    try {
-      const res = await firebaseAuthService.signInWithGoogleAccount({
-        email: googleEmailInput.trim().toLowerCase(),
-      });
-      if (res.success) {
-        if (!res.isAdmin) {
-          setLoginError("Esta Conta Google não está na lista de administradores autorizados.");
-        }
-      } else {
-        setLoginError(res.error || "Não foi possível validar a Conta Google.");
-      }
-    } catch (err: any) {
-      setLoginError(err.message || "Erro ao conectar.");
     } finally {
       setLoginLoading(false);
     }
@@ -218,7 +194,6 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                   type="button"
                   onClick={async () => {
                     await firebaseAuthService.signOut();
-                    setShowDirectInput(false);
                     setLoginError(null);
                   }}
                   className="w-full py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-xs font-semibold transition-colors cursor-pointer text-center"
@@ -237,7 +212,7 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
           )}
 
           {/* Botão de Entrada Exclusivo com Conta Google */}
-          {(!authState.isAuthenticated || showDirectInput) && (
+          {!authState.isAuthenticated && (
             <div className="space-y-3">
               <button
                 type="button"
@@ -265,32 +240,6 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                 </svg>
                 <span>{loginLoading ? "Autenticando..." : "Entrar com o Google"}</span>
               </button>
-
-              {showDirectInput && (
-                <form onSubmit={handleConfirmGoogleAdminEmail} className="pt-3 border-t border-slate-800 space-y-3">
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-400 mb-1 flex items-center gap-1">
-                      <Mail className="w-3.5 h-3.5 text-blue-400" />
-                      E-mail da sua Conta Google de Administrador
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      value={googleEmailInput}
-                      onChange={(e) => setGoogleEmailInput(e.target.value)}
-                      placeholder="administrador@gmail.com"
-                      className="w-full px-3 py-2 text-xs rounded-xl bg-slate-950 border border-slate-800 focus:border-blue-500 text-white outline-none"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={loginLoading}
-                    className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                  >
-                    <span>Validar Permissão de Administrador</span>
-                  </button>
-                </form>
-              )}
             </div>
           )}
 

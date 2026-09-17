@@ -1,17 +1,6 @@
 import React, { useState } from "react";
-import {
-  firebaseAuthService,
-  isEmailAdmin,
-} from "../services/firebaseAuthService";
-import {
-  X,
-  Shield,
-  AlertCircle,
-  CheckCircle2,
-  Mail,
-  User,
-  ArrowRight,
-} from "lucide-react";
+import { firebaseAuthService } from "../services/firebaseAuthService";
+import { X, Shield, AlertCircle, CheckCircle2 } from "lucide-react";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -20,81 +9,41 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMetrics }) => {
-  // Google Sign-In States
-  const [googleEmail, setGoogleEmail] = useState("");
-  const [googleName, setGoogleName] = useState("");
-  const [showAccountSelector, setShowAccountSelector] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  // 1. Google Native Popup Sign-In
-  const handleGoogleSignInClick = async () => {
+  // Login automático exclusivo com o Google (sem pedir e-mail e sem pedir nome)
+  const handleGoogleSignIn = async () => {
     setLoading(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    const nativeRes = await firebaseAuthService.signInWithGooglePopup();
-    if (nativeRes.success) {
-      const isAdmin = nativeRes.isAdmin;
-      setSuccessMessage(
-        isAdmin
-          ? "Bem-vindo(a), Administrador(a)! Acesso autorizado ao Painel de Metas."
-          : "Login com Google realizado com sucesso!"
-      );
-      setTimeout(() => {
-        onClose();
-        if (isAdmin && onOpenMetrics) {
-          onOpenMetrics();
-        }
-      }, 700);
-      setLoading(false);
-      return;
-    }
-
-    // If popup is blocked by iframe or requires account selection
-    setShowAccountSelector(true);
-    setLoading(false);
-  };
-
-  // 2. Google Direct Account Confirmation
-  const handleConfirmGoogleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setErrorMessage(null);
-
-    const cleanEmail = googleEmail.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes("@")) {
-      setErrorMessage("Por favor, insira um e-mail válido da sua Conta Google.");
-      setLoading(false);
-      return;
-    }
-
     try {
-      const res = await firebaseAuthService.signInWithGoogleAccount({
-        email: cleanEmail,
-        displayName: googleName.trim() || undefined,
-      });
-
+      const res = await firebaseAuthService.signInWithGooglePopup();
       if (res.success) {
+        const isAdmin = res.isAdmin;
         setSuccessMessage(
-          res.isAdmin
+          isAdmin
             ? "Autenticado com sucesso como Administrador!"
-            : "Conectado com sucesso com sua Conta Google!"
+            : "Login com Google realizado com sucesso!"
         );
         setTimeout(() => {
           onClose();
-          if (res.isAdmin && onOpenMetrics) {
+          if (isAdmin && onOpenMetrics) {
             onOpenMetrics();
           }
         }, 700);
       } else {
-        setErrorMessage(res.error || "Não foi possível concluir o login com o Google.");
+        setErrorMessage(
+          res.error ||
+            "A janela de login com o Google foi fechada ou bloqueada. Por favor, clique novamente para autorizar."
+        );
       }
     } catch (err: any) {
-      setErrorMessage(err.message || "Falha na autenticação com o Google.");
+      setErrorMessage(err?.message || "Não foi possível conectar com a Conta Google.");
     } finally {
       setLoading(false);
     }
@@ -112,7 +61,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMet
         id="auth-modal-content"
         className="relative w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-blue-900/60 rounded-3xl shadow-2xl overflow-hidden transition-all text-slate-900 dark:text-slate-100"
       >
-        {/* Header with Google Colors Accent */}
+        {/* Accent bar with Google colors */}
         <div className="h-2 w-full bg-gradient-to-r from-blue-500 via-red-500 via-amber-400 to-green-500" />
 
         <div className="p-6 sm:p-8">
@@ -143,18 +92,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMet
                   Entrar com o Google
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Norma Jurídica • Identidade Digital
+                  Norma Jurídica • Login Automático
                 </p>
               </div>
             </div>
 
             <button
               onClick={onClose}
-              className="p-2 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className="p-2 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-6">
+            Acesse diretamente com sua Conta Google. O seu <strong>nome oficial</strong> e <strong>foto de perfil</strong> configurados na sua Conta Google serão exibidos automaticamente ao lado do avatar no canto superior direito.
+          </p>
 
           {/* Feedback messages */}
           {errorMessage && (
@@ -171,14 +124,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMet
             </div>
           )}
 
-          {/* Main Google Sign-In Action */}
+          {/* Botão Único de Login Automático com o Google */}
           <div className="space-y-4">
             <button
               id="google-sign-in-action-btn"
               type="button"
               disabled={loading}
-              onClick={handleGoogleSignInClick}
-              className="w-full py-3.5 px-4 rounded-2xl border border-slate-300 dark:border-slate-700 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-800 dark:text-white font-medium text-sm transition-all shadow-sm hover:shadow flex items-center justify-center gap-3 cursor-pointer active:scale-[0.99]"
+              onClick={handleGoogleSignIn}
+              className="w-full py-3.5 px-4 rounded-2xl border border-slate-300 dark:border-slate-700 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-800 dark:text-white font-semibold text-sm transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-3 cursor-pointer active:scale-[0.99] disabled:opacity-60"
             >
               <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
                 <path
@@ -198,66 +151,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMet
                   fill="#EA4335"
                 />
               </svg>
-              <span>{loading ? "Conectando com o Google..." : "Continuar com o Google"}</span>
+              <span>{loading ? "Conectando ao Google..." : "Entrar com o Google"}</span>
             </button>
 
-            {/* Account Selector / Iframe Fallback */}
-            {showAccountSelector && (
-              <form onSubmit={handleConfirmGoogleLogin} className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3.5 animate-fade-in">
-                <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Selecione ou digite sua Conta Google:
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
-                    E-mail da Conta Google
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                    <input
-                      type="email"
-                      required
-                      value={googleEmail}
-                      onChange={(e) => setGoogleEmail(e.target.value)}
-                      placeholder="seu.email@gmail.com"
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
-                    Nome Completo (como na Conta Google)
-                  </label>
-                  <div className="relative">
-                    <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                    <input
-                      type="text"
-                      value={googleName}
-                      onChange={(e) => setGoogleName(e.target.value)}
-                      placeholder="Ex: Carlos Miranda"
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-colors flex items-center justify-center gap-2 shadow-sm"
-                >
-                  <span>Concluir Login Google</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </form>
-            )}
-
-            {/* Information Notice */}
+            {/* Aviso de Privacidade e Segurança */}
             <div className="pt-4 border-t border-slate-100 dark:border-slate-800/80">
               <div className="flex items-start gap-2.5 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
                 <Shield className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
                 <p>
-                  O login é exclusivo com Contas Google. O avatar do Google com sua foto será exibido no canto superior direito. Usuários administradores configurados no sistema terão acesso liberado ao Painel de Metas & Tráfego.
+                  Autenticação segura e direta com o Google. Não solicitamos senhas, e-mails manuais nem preenchimento de nomes. Os administradores autorizados têm acesso liberado ao Painel de Metas.
                 </p>
               </div>
             </div>

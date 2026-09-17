@@ -48,6 +48,8 @@ export function searchNews(newsList: NewsItem[], query: string): NewsItem[] {
     const normCat = normalizeForSearch(item.category);
     const normAuthor = normalizeForSearch(String(item.author || ""));
     const normSource = normalizeForSearch(item.sourceSite);
+    const normTags = (item.tags || []).map((t) => normalizeForSearch(t)).join(" ");
+    const normSlug = normalizeForSearch(item.slug || "");
 
     let score = 0;
 
@@ -64,6 +66,9 @@ export function searchNews(newsList: NewsItem[], query: string): NewsItem[] {
     if (normCat.includes(normalizedQuery) || normSource.includes(normalizedQuery)) {
       score += 45;
     }
+    if (normTags.includes(normalizedQuery) || normSlug.includes(normalizedQuery)) {
+      score += 45;
+    }
 
     // 2. Individual word tokens match
     let matchedTokenCount = 0;
@@ -78,6 +83,10 @@ export function searchNews(newsList: NewsItem[], query: string): NewsItem[] {
         matched = true;
       }
       if (normCat.includes(token) || normSource.includes(token) || normAuthor.includes(token)) {
+        score += 15;
+        matched = true;
+      }
+      if (normTags.includes(token) || normSlug.includes(token)) {
         score += 15;
         matched = true;
       }

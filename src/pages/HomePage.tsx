@@ -111,7 +111,11 @@ export const HomePage: React.FC<HomePageProps> = ({
             <div className="flex items-center gap-2 flex-wrap">
               <Clock className="w-4 h-4 text-blue-400" />
               <h2 className="font-serif text-xl font-bold text-white tracking-wide">
-                {selectedCategory === "Todas" ? "Últimas Notícias e Reportagens" : `Editoria: ${selectedCategory}`}
+                {searchTerm
+                  ? `Resultado da pesquisa em todo o acervo por "${searchTerm}" (${allNewsCount} ${allNewsCount === 1 ? "matéria encontrada" : "matérias encontradas"})`
+                  : selectedCategory === "Todas"
+                  ? "Últimas Notícias e Reportagens"
+                  : `Editoria: ${selectedCategory}`}
               </h2>
             </div>
           </div>

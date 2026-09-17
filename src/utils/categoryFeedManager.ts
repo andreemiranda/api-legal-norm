@@ -124,73 +124,40 @@ export function buildCategoryFeed(
     };
   }
 
-  // 1. Direct matches by category
+  // 1. Direct matches strictly by category - NO mixing with other categories
   const directMatches = allAvailableNews.filter(
     (item) => normalize(item.category) === normTarget
   );
 
-  // 2. Secondary matches (mentioning category in title, description or tags)
-  const secondaryMatches = allAvailableNews.filter((item) => {
-    if (normalize(item.category) === normTarget) return false;
-    const title = normalize(item.title);
-    const desc = normalize(item.description);
-    return title.includes(normTarget) || desc.includes(normTarget);
-  });
+  // Deduplicate items belonging to this category
+  const seenKeys = new Set<string>();
+  const categoryItems: NewsItem[] = [];
 
-  // Combine matches deduplicating by ID/slug
-  const combinedMap = new Map<string | number, NewsItem>();
-  directMatches.forEach((item) => combinedMap.set(item.id || item.slug || Math.random(), item));
-  secondaryMatches.forEach((item) => combinedMap.set(item.id || item.slug || Math.random(), item));
-
-  let categoryItems = Array.from(combinedMap.values());
-
-  // 3. Ensure minimum 250 items for this category feed
-  if (categoryItems.length < MIN_CATEGORY_FEED_ITEMS) {
-    // Fill with contextually adapted items from related categories or general news
-    const needed = MIN_CATEGORY_FEED_ITEMS - categoryItems.length;
-    const otherItems = allAvailableNews.filter((item) => !combinedMap.has(item.id || item.slug));
-
-    for (let i = 0; i < otherItems.length && categoryItems.length < MIN_CATEGORY_FEED_ITEMS; i++) {
-      const donor = otherItems[i];
-      // Create a contextualized item for this category feed
-      const adaptedItem: NewsItem = {
-        ...donor,
-        id: `cat_${normTarget}_${donor.id || i}`,
-        category: categoryName, // assign requested category
-        slug: `${donor.slug || donor.id || i}-cat-${normTarget}`,
-        tags: extractTagsForNewsItem({ ...donor, category: categoryName }),
-      };
-      categoryItems.push(adaptedItem);
+  for (const item of directMatches) {
+    const key = String(item.id || item.slug || item.title);
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      const tags = item.tags && item.tags.length > 0
+        ? item.tags
+        : extractTagsForNewsItem(item);
+      categoryItems.push({
+        ...item,
+        tags,
+      });
     }
   }
 
-  // Ensure every item in the feed has tags
-  const finalizedItems = categoryItems.map((item) => {
-    const tags = item.tags && item.tags.length > 0
-      ? item.tags
-      : extractTagsForNewsItem({ ...item, category: categoryName });
-    return {
-      ...item,
-      category: categoryName,
-      tags,
-    };
-  });
-
-  // Strict chronological sorting (newest first)
-  finalizedItems.sort((a, b) => {
-    const timeA = new Date(a.pubDate || 0).getTime();
-    const timeB = new Date(b.pubDate || 0).getTime();
-    return timeB - timeA;
-  });
+  // Strict chronological sorting: newest first from current hour down to oldest
+  categoryItems.sort((a, b) => getNewsTimestamp(b) - getNewsTimestamp(a));
 
   // Compute tag counts for this specific category
-  const tags = computeTagCounts(finalizedItems);
+  const tags = computeTagCounts(categoryItems);
 
   return {
     category: categoryName,
-    total: finalizedItems.length,
+    total: categoryItems.length,
     tag_count: tags.length,
     tags,
-    items: finalizedItems,
+    items: categoryItems,
   };
 }

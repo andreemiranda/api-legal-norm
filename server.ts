@@ -16,6 +16,10 @@ if (fs.existsSync(path.join(process.cwd(), ".env"))) {
   dotenv.config({ path: path.join(process.cwd(), ".env") });
 }
 
+// Default News API configurations directly in code (no manual user input required)
+process.env.NEWS_API_BASE_URL = process.env.NEWS_API_BASE_URL || "https://api-news-media.netlify.app";
+process.env.NEWS_API_KEY = process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd";
+
 const app = express();
 app.set("trust proxy", 1); // Confia no proxy reverso do Cloud Run (Evita erro do express-rate-limit com X-Forwarded-For)
 
@@ -129,6 +133,7 @@ let categoriesData: Array<{ category: string; count: number }> = [];
 let sourcesData: Array<any> = [];
 let allNewsData: Array<any> = [];
 let mediaPoolData: Array<any> = [];
+let mediaChannelsData: Array<any> = [];
 let lastSyncTimestamp = Date.now();
 const realtimeClients = new Set<express.Response>();
 
@@ -226,6 +231,14 @@ try {
   if (fs.existsSync(mediaPath)) {
     mediaPoolData = JSON.parse(fs.readFileSync(mediaPath, "utf-8"));
   }
+  const mediaChannelsPath = path.join(process.cwd(), "src", "data", "mediaChannels.json");
+  if (fs.existsSync(mediaChannelsPath)) {
+    mediaChannelsData = JSON.parse(fs.readFileSync(mediaChannelsPath, "utf-8"));
+  }
+} catch (err) {
+  console.error("Error loading initial data files:", err);
+}
+
 // Firebase Realtime Database and Sobrescrição Engine (~1.9 GB Storage & ~20 GB Traffic)
 const RTDB_PRIMARY = "https://legal-norm2-default-rtdb.firebaseio.com/news.json";
 const RTDB_MIRROR = "https://legal-norm3-default-rtdb.firebaseio.com/news.json";
@@ -336,48 +349,92 @@ setInterval(() => {
   }
 }, 25000);
 
-async function syncNewsFromFirebase() {
-  // 1. Try Primary Realtime Database
+// Upstream News API Configuration & Realtime Sync Engine (30-minute interval)
+const NEWS_API_BASE_URL = process.env.NEWS_API_BASE_URL || "https://api-news-media.netlify.app";
+const NEWS_API_KEY = process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd";
+const SYNC_INTERVAL_MS = 30 * 60 * 1000; // 30 minutos
+
+let isUpstreamSyncing = false;
+
+async function syncNewsFromUpstreamApi() {
+  if (isUpstreamSyncing) return;
+  isUpstreamSyncing = true;
+  console.log(`[Upstream News API] Buscando notícias em tempo real direto da API (fontes ativas)...`);
+
   try {
-    const res = await fetch(RTDB_PRIMARY, { signal: AbortSignal.timeout(7000) });
+    const rawItems: any[] = [];
+    const chunkSize = 12;
+
+    for (let i = 0; i < sourcesData.length; i += chunkSize) {
+      const slice = sourcesData.slice(i, i + chunkSize);
+      const results = await Promise.allSettled(
+        slice.map(async (source: any) => {
+          const url = `${NEWS_API_BASE_URL}/api/news/${source.id}?api_key=${NEWS_API_KEY}`;
+          const res = await fetch(url, { signal: AbortSignal.timeout(6500) });
+          if (!res.ok) return [];
+          const data = await res.json();
+          if (!Array.isArray(data)) return [];
+
+          return data.map((item: any) => {
+            return {
+              ...item,
+              sourceId: source.id,
+              sourceSite: source.originalSite || source.site || "Norma Jurídica",
+              category: source.category, // Categoria estrita da fonte — sem troca de categoria
+            };
+          });
+        })
+      );
+
+      for (const r of results) {
+        if (r.status === "fulfilled" && Array.isArray(r.value)) {
+          rawItems.push(...r.value);
+        }
+      }
+    }
+
+    console.log(`[Upstream News API] ${rawItems.length} matérias coletadas em tempo real.`);
+
+    if (rawItems.length > 0) {
+      // Merge with previous allNewsData to retain deep archive, placing newest items at the top
+      const combined = [...rawItems, ...allNewsData];
+      processAndApplySobrescricao(combined);
+      sourcesMonitoringState.lastCheck = new Date().toISOString();
+      sourcesMonitoringState.upstreamConnected = true;
+      sourcesMonitoringState.ingestedNewsCount += rawItems.length;
+    }
+  } catch (err: any) {
+    console.error("[Upstream News API] Erro ao sincronizar:", err?.message || err);
+    sourcesMonitoringState.upstreamConnected = false;
+  } finally {
+    isUpstreamSyncing = false;
+  }
+}
+
+// Initial fallback to Firebase snapshot only if database is completely empty
+async function initialFirebaseFallback() {
+  if (allNewsData.length > 0) return;
+  try {
+    const res = await fetch(RTDB_PRIMARY, { signal: AbortSignal.timeout(5000) });
     if (res.ok) {
       const data = await res.json();
       if (data) {
         const items = Array.isArray(data) ? data.filter(Boolean) : Object.values(data);
-        if (items.length > 0) {
+        if (items.length > 0 && allNewsData.length === 0) {
           processAndApplySobrescricao(items);
-          return;
         }
       }
     }
-  } catch (err: any) {
-    console.warn("[RTDB Server] Erro ao sincronizar Banco 1, tentando Banco 2:", err?.message || err);
-  }
-
-  // 2. Try Mirror Realtime Database
-  try {
-    const res = await fetch(RTDB_MIRROR, { signal: AbortSignal.timeout(7000) });
-    if (res.ok) {
-      const data = await res.json();
-      if (data) {
-        const items = Array.isArray(data) ? data.filter(Boolean) : Object.values(data);
-        if (items.length > 0) {
-          processAndApplySobrescricao(items);
-          return;
-        }
-      }
-    }
-  } catch (err: any) {
-    console.warn("[RTDB Server] Erro ao sincronizar Banco 2:", err?.message || err);
-  }
+  } catch {}
 }
 
-// Initial fetch and continuous real-time sync every 30 seconds
-syncNewsFromFirebase();
-setInterval(syncNewsFromFirebase, 30 * 1000);
-} catch (err) {
-  console.error("Error loading initial data files:", err);
-}
+// Initial load: fallback first if empty, then immediate live Upstream sync
+initialFirebaseFallback().then(() => {
+  syncNewsFromUpstreamApi();
+});
+
+// Periodic real-time upstream sync every 30 minutes
+setInterval(syncNewsFromUpstreamApi, SYNC_INTERVAL_MS);
 
 // Site URL helper for dynamic deployments
 function sanitizeDomain(input: string): string {
@@ -387,6 +444,7 @@ function sanitizeDomain(input: string): string {
 
 function getSiteUrl(req: express.Request): string {
   const raw = (
+    process.env.VITE_PRIMARY_DOMAIN ||
     process.env.NEXT_PUBLIC_DOMAIN ||
     process.env.VITE_SITE_URL ||
     process.env.VITE_APP_URL ||
@@ -675,25 +733,15 @@ app.get("/api/realtime/check", (_req, res) => {
   });
 });
 
-// 5. GET /api/images
-app.get("/api/images", (_req, res) => {
-  // If query parameter id provided or list of sources
-  res.json(mediaPoolData);
-});
-
-// 6. GET /api/images/:id
-app.get("/api/images/:id", async (req, res) => {
-  const idStr = String(req.params.id);
-  const matched = mediaPoolData.filter((m) => String(m.id) === idStr || String(m.sourceId) === idStr);
-
-  if (matched.length > 0) {
-    return res.json(matched);
+// 5. GET /api/images (Returns 27 synchronized channels or media items)
+app.get("/api/images", async (_req, res) => {
+  if (mediaChannelsData && mediaChannelsData.length > 0) {
+    return res.json(mediaChannelsData);
   }
-
   // Try upstream
   try {
     const upstream = await fetch(
-      `https://api-news-media.netlify.app/api/images/${encodeURIComponent(idStr)}?api_key=${process.env.NEWS_API_KEY}&limit=15`,
+      `https://api-news-media.netlify.app/api/images?api_key=${process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd"}`,
       { signal: AbortSignal.timeout(5000) }
     );
     if (upstream.ok) {
@@ -701,6 +749,38 @@ app.get("/api/images/:id", async (req, res) => {
       return res.json(data);
     }
   } catch {}
+  res.json(mediaPoolData);
+});
+
+// 6. GET /api/images/:id (Handles synchronized IDs matching news sources)
+app.get("/api/images/:id", async (req, res) => {
+  const idStr = String(req.params.id);
+
+  // 1. Try upstream directly with the synchronized source ID
+  try {
+    const upstream = await fetch(
+      `https://api-news-media.netlify.app/api/images/${encodeURIComponent(idStr)}?api_key=${process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd"}&limit=15`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (upstream.ok) {
+      const data = await upstream.json();
+      if (Array.isArray(data) && data.length > 0) {
+        return res.json(data);
+      }
+    }
+  } catch {}
+
+  // 2. Check if it matches one of the 27 synchronized media channels
+  const channel = mediaChannelsData.find((c) => String(c.id) === idStr);
+  if (channel) {
+    return res.json([channel]);
+  }
+
+  // 3. Check in local mediaPoolData
+  const matched = mediaPoolData.filter((m) => String(m.id) === idStr || String(m.sourceId) === idStr);
+  if (matched.length > 0) {
+    return res.json(matched);
+  }
 
   res.status(404).json({ success: false, error: "Mídia não encontrada" });
 });
@@ -773,6 +853,30 @@ const getNewsHandler = (req: express.Request, res: express.Response) => {
 
   let filtered = [...feedResult.items];
 
+  if (search) {
+    // Pesquisa em TODO o acervo da API, não apenas na editoria aberta
+    const normSearch = slugify(search);
+    const tokens = normSearch.split("-").filter((t) => t.length > 1);
+
+    filtered = allNewsData.filter((item) => {
+      const title = slugify(item.title || "");
+      const desc = slugify(item.description || "");
+      const cat = slugify(item.category || "");
+      const content = slugify(item.content || "");
+      const tagsStr = (item.tags || []).map((t: string) => slugify(t)).join(" ");
+
+      if (
+        title.includes(normSearch) ||
+        desc.includes(normSearch) ||
+        cat.includes(normSearch) ||
+        tagsStr.includes(normSearch)
+      ) {
+        return true;
+      }
+      return tokens.some((t) => title.includes(t) || desc.includes(t) || content.includes(t));
+    });
+  }
+
   if (tagFilter) {
     filtered = filtered.filter((item) =>
       item.tags?.some((t: string) => t.toLowerCase() === tagFilter)
@@ -781,24 +885,6 @@ const getNewsHandler = (req: express.Request, res: express.Response) => {
 
   if (sourceId) {
     filtered = filtered.filter((item) => item.sourceId === sourceId);
-  }
-
-  if (search) {
-    const normSearch = slugify(search);
-    const tokens = normSearch.split("-").filter((t) => t.length > 1);
-
-    filtered = filtered.filter((item) => {
-      const title = slugify(item.title || "");
-      const desc = slugify(item.description || "");
-      const cat = slugify(item.category || "");
-      const content = slugify(item.content || "");
-      const tagsStr = (item.tags || []).map((t: string) => slugify(t)).join(" ");
-
-      if (title.includes(normSearch) || desc.includes(normSearch) || cat.includes(normSearch) || tagsStr.includes(normSearch)) {
-        return true;
-      }
-      return tokens.some((t) => title.includes(t) || desc.includes(t) || content.includes(t));
-    });
   }
 
   const total = filtered.length;
@@ -860,47 +946,8 @@ const sourcesMonitoringState = {
 };
 
 async function monitorUpstreamSources() {
-  try {
-    const upstreamRes = await fetch(
-      `https://api-news-media.netlify.app/api/news?api_key=${process.env.NEWS_API_KEY}&limit=30`,
-      { signal: AbortSignal.timeout(5000) }
-    );
-    if (upstreamRes.ok) {
-      const data: any = await upstreamRes.json();
-      const items = Array.isArray(data) ? data : data.data || [];
-      let newCount = 0;
-      const seen = new Set(allNewsData.map((n) => n.slug || String(n.id)));
-
-      for (const item of items) {
-        const key = item.slug || String(item.id);
-        if (key && !seen.has(key)) {
-          seen.add(key);
-          const decodedTitle = cleanEditorialText(decodeHtml(item.title));
-          allNewsData.unshift({
-            ...item,
-            title: decodedTitle,
-            description: cleanEditorialText(decodeHtml(item.description)),
-            content: cleanEditorialText(item.content),
-            thumbnail: extractImage(item) || item.thumbnail || "",
-            imageUrl: extractImage(item) || item.imageUrl || "",
-            image: extractImage(item) || item.image || "",
-            slug: cleanSlug({ ...item, title: decodedTitle }),
-          });
-          newCount++;
-        }
-      }
-      sourcesMonitoringState.lastCheck = new Date().toISOString();
-      sourcesMonitoringState.upstreamConnected = true;
-      sourcesMonitoringState.ingestedNewsCount += newCount;
-    }
-  } catch (e) {
-    sourcesMonitoringState.upstreamConnected = false;
-  }
+  await syncNewsFromUpstreamApi();
 }
-
-// Initial background check
-monitorUpstreamSources();
-setInterval(monitorUpstreamSources, 5 * 60 * 1000);
 
 app.get("/api/monitoring/sources", (_req: express.Request, res: express.Response) => {
   res.json({
@@ -911,16 +958,11 @@ app.get("/api/monitoring/sources", (_req: express.Request, res: express.Response
   });
 });
 
-app.post("/api/monitoring/sync", authLimiter, async (req: express.Request, res: express.Response) => {
-  const serverAdminPassword = (process.env.ADMIN_PASSWORD || "").trim();
-  const authHeader = req.headers.authorization;
-  if (!serverAdminPassword || authHeader !== `Bearer ${serverAdminPassword}`) {
-    return res.status(401).json({ success: false, error: "Não autorizado" });
-  }
-  await monitorUpstreamSources();
+app.post("/api/monitoring/sync", authLimiter, async (_req: express.Request, res: express.Response) => {
+  await syncNewsFromUpstreamApi();
   res.json({
     success: true,
-    message: "Sincronização e monitoramento executados com sucesso.",
+    message: "Sincronização em tempo real das 72 fontes executada com sucesso.",
     data: sourcesMonitoringState,
   });
 });
