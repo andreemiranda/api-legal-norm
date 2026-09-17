@@ -291,6 +291,7 @@ class FirebaseAuthService {
     success: boolean;
     isAdmin: boolean;
     error?: string;
+    errorCode?: string;
     requiresFallback?: boolean;
   }> {
     try {
@@ -321,11 +322,25 @@ class FirebaseAuthService {
       return { success: true, isAdmin };
     } catch (err: any) {
       console.warn("Native Google Popup notice (switching to Google UI):", err?.code || err?.message);
+      
+      let errorMsg = err?.message || "Popup não pôde ser aberto.";
+      let requiresFallback = true;
+      let errorCode = err?.code || "";
+
+      if (errorCode === "auth/popup-closed-by-user") {
+        errorMsg = "O pop-up de login foi fechado ou bloqueado pelo navegador. Se você estiver usando um ambiente de visualização (como um iframe), clique no botão abaixo para abrir o aplicativo em uma nova aba e fazer o login.";
+      } else if (errorCode === "auth/web-storage-unsupported") {
+        errorMsg = "Seu navegador está bloqueando cookies de terceiros ou armazenamento local. Por favor, abra o aplicativo em uma nova aba ou desative as restrições.";
+      } else if (errorCode === "auth/popup-blocked") {
+        errorMsg = "O pop-up de login foi bloqueado pelo seu navegador. Por favor, permita pop-ups para este site ou abra em uma nova aba.";
+      }
+
       return {
         success: false,
         isAdmin: false,
-        requiresFallback: true,
-        error: err?.message || "Popup não pôde ser aberto.",
+        requiresFallback,
+        error: errorMsg,
+        errorCode: errorCode
       };
     }
   }

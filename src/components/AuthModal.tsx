@@ -11,6 +11,7 @@ interface AuthModalProps {
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMetrics }) => {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -19,6 +20,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMet
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setErrorMessage(null);
+    setErrorCode(null);
     setSuccessMessage(null);
 
     try {
@@ -41,9 +43,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMet
           res.error ||
             "A janela de login com o Google foi fechada ou bloqueada. Por favor, clique novamente para autorizar."
         );
+        setErrorCode(res.errorCode || null);
       }
     } catch (err: any) {
       setErrorMessage(err?.message || "Não foi possível conectar com a Conta Google.");
+      setErrorCode(err?.code || null);
     } finally {
       setLoading(false);
     }
@@ -111,9 +115,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMet
 
           {/* Feedback messages */}
           {errorMessage && (
-            <div className="mb-5 p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/50 flex items-start gap-2.5 text-xs text-red-700 dark:text-red-300">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
-              <span>{errorMessage}</span>
+            <div className="mb-5 flex flex-col gap-3">
+              <div className="p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/50 flex items-start gap-2.5 text-xs text-red-700 dark:text-red-300">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+                <span>{errorMessage}</span>
+              </div>
+              
+              {(errorCode === "auth/popup-closed-by-user" || errorCode === "auth/web-storage-unsupported") && (
+                <button
+                  type="button"
+                  onClick={() => window.open(window.location.href, "_blank")}
+                  className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs sm:text-sm transition-colors shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                  Abrir App em Nova Aba
+                </button>
+              )}
             </div>
           )}
 
