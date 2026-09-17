@@ -97,18 +97,6 @@ export function getRadarEditorialNews(
   rotationSeed: number,
   limit = 8
 ): SectionEditorialResult {
-  const categories = getAvailableCategories(allNews);
-  if (categories.length === 0) {
-    const sorted = sortNewsChronological(allNews).slice(0, limit);
-    return {
-      items: sorted,
-      featuredCategory: "Geral",
-      isFiltered: false,
-      totalCategoryArticles: sorted.length,
-    };
-  }
-
-  // 1. Specific category selected by user click -> strictly that editoria only
   if (selectedCategory && selectedCategory !== "Todas") {
     const matched = sortNewsChronological(
       allNews.filter((n) => n.category?.toLowerCase() === selectedCategory.toLowerCase())
@@ -121,71 +109,21 @@ export function getRadarEditorialNews(
     };
   }
 
-  // 2. "Todas" mode -> Shuffled randomly so it never follows alphabetical sequence
-  // Offset seed by +739 so Radar never clashes with Carousel
-  const shuffledCategories = shuffleArray(categories, rotationSeed + 739);
-  const targetCategory = shuffledCategories[0] || categories[0];
-  const grouped = groupNewsByCategory(allNews);
-  const catArticles = grouped[targetCategory] || [];
-
-  if (catArticles.length >= limit) {
-    return {
-      items: catArticles.slice(0, limit),
-      featuredCategory: targetCategory,
-      isFiltered: false,
-      totalCategoryArticles: catArticles.length,
-    };
-  }
-
-  // If the random category has fewer than limit items, complete with newest items
-  // from subsequent random categories in the shuffled list (never alphabetical!)
-  const combined: NewsItem[] = [...catArticles];
-  const seenIds = new Set(combined.map((n) => n.slug || String(n.id)));
-
-  for (let i = 1; i < shuffledCategories.length && combined.length < limit; i++) {
-    const nextCat = shuffledCategories[i];
-    const nextArticles = grouped[nextCat] || [];
-    for (const art of nextArticles) {
-      const key = art.slug || String(art.id);
-      if (!seenIds.has(key)) {
-        seenIds.add(key);
-        combined.push(art);
-        if (combined.length >= limit) break;
-      }
-    }
-  }
-
+  const sorted = sortNewsChronological(allNews).slice(0, limit);
   return {
-    items: combined.slice(0, limit),
-    featuredCategory: targetCategory,
+    items: sorted,
+    featuredCategory: "Geral",
     isFiltered: false,
-    totalCategoryArticles: catArticles.length,
+    totalCategoryArticles: sorted.length,
   };
 }
 
-/**
- * News for "Carrossel de Notícias" (HomePage).
- * - When an editoria is clicked: shows newest news of that editoria (up to 6).
- * - When "Todas": Rotates to a RANDOM editoria (not alphabetical) on every page refresh or manual click.
- */
 export function getCarouselNews(
   allNews: NewsItem[],
   selectedCategory: string,
   rotationSeed: number,
   limit = 6
 ): SectionEditorialResult {
-  const categories = getAvailableCategories(allNews);
-  if (categories.length === 0) {
-    const sorted = sortNewsChronological(allNews).slice(0, limit);
-    return {
-      items: sorted,
-      featuredCategory: "Geral",
-      isFiltered: false,
-      totalCategoryArticles: sorted.length,
-    };
-  }
-
-  // 1. Specific category selected
   if (selectedCategory && selectedCategory !== "Todas") {
     const matched = sortNewsChronological(
       allNews.filter((n) => n.category?.toLowerCase() === selectedCategory.toLowerCase())
@@ -198,69 +136,21 @@ export function getCarouselNews(
     };
   }
 
-  // 2. "Todas" mode -> Shuffled randomly so it never follows alphabetical sequence
-  const shuffledCategories = shuffleArray(categories, rotationSeed);
-  const targetCategory = shuffledCategories[0] || categories[0];
-  const grouped = groupNewsByCategory(allNews);
-  const catArticles = grouped[targetCategory] || [];
-
-  if (catArticles.length >= limit) {
-    return {
-      items: catArticles.slice(0, limit),
-      featuredCategory: targetCategory,
-      isFiltered: false,
-      totalCategoryArticles: catArticles.length,
-    };
-  }
-
-  // If fewer than limit, include all and complete from subsequent random categories in shuffled list
-  const combined: NewsItem[] = [...catArticles];
-  const seenIds = new Set(combined.map((n) => n.slug || String(n.id)));
-
-  for (let i = 1; i < shuffledCategories.length && combined.length < limit; i++) {
-    const nextCat = shuffledCategories[i];
-    const nextArticles = grouped[nextCat] || [];
-    for (const art of nextArticles) {
-      const key = art.slug || String(art.id);
-      if (!seenIds.has(key)) {
-        seenIds.add(key);
-        combined.push(art);
-        if (combined.length >= limit) break;
-      }
-    }
-  }
-
+  const sorted = sortNewsChronological(allNews).slice(0, limit);
   return {
-    items: combined.slice(0, limit),
-    featuredCategory: targetCategory,
+    items: sorted,
+    featuredCategory: "Geral",
     isFiltered: false,
-    totalCategoryArticles: catArticles.length,
+    totalCategoryArticles: sorted.length,
   };
 }
 
-/**
- * News for "Últimas Notícias" in RightSidebar.
- * - When an editoria is clicked: shows newest news of that editoria.
- * - When "Todas": Selects the freshest story from 5 RANDOM distinct editorias (not alphabetical neighbors).
- */
 export function getSidebarNews(
   allNews: NewsItem[],
   selectedCategory: string,
   rotationSeed: number,
   limit = 5
 ): SectionEditorialResult {
-  const categories = getAvailableCategories(allNews);
-  if (categories.length === 0) {
-    const sorted = sortNewsChronological(allNews).slice(0, limit);
-    return {
-      items: sorted,
-      featuredCategory: "Geral",
-      isFiltered: false,
-      totalCategoryArticles: sorted.length,
-    };
-  }
-
-  // 1. Specific category selected
   if (selectedCategory && selectedCategory !== "Todas") {
     const matched = sortNewsChronological(
       allNews.filter((n) => n.category?.toLowerCase() === selectedCategory.toLowerCase())
@@ -273,34 +163,11 @@ export function getSidebarNews(
     };
   }
 
-  // 2. "Todas" mode -> Pick the freshest story from 5 randomly shuffled distinct editorias (never alphabetical!)
-  // Offset seed by +2413 for distinct randomization
-  const shuffledCategories = shuffleArray(categories, rotationSeed + 2413);
-  const grouped = groupNewsByCategory(allNews);
-  const picked: NewsItem[] = [];
-  const seenIds = new Set<string>();
-
-  for (const catName of shuffledCategories) {
-    const articles = grouped[catName] || [];
-    for (const art of articles) {
-      const key = art.slug || String(art.id);
-      if (!seenIds.has(key)) {
-        seenIds.add(key);
-        picked.push(art);
-        break;
-      }
-    }
-    if (picked.length >= limit) break;
-  }
-
-  // Sort the picked 5 items chronologically newest first
-  const sortedPicked = sortNewsChronological(picked);
-  const primaryFeaturedCat = shuffledCategories[0] || "Geral";
-
+  const sorted = sortNewsChronological(allNews).slice(0, limit);
   return {
-    items: sortedPicked,
-    featuredCategory: primaryFeaturedCat,
+    items: sorted,
+    featuredCategory: "Geral",
     isFiltered: false,
-    totalCategoryArticles: sortedPicked.length,
+    totalCategoryArticles: sorted.length,
   };
 }

@@ -105,11 +105,10 @@ export function buildCategoryFeed(
   const normTarget = normalize(categoryName);
   const isAll = !categoryName || normTarget === "todas" || normTarget === "all";
 
-  // If "Todas", generate a balanced rotating feed where all categories rotate across all pages
-  // and each page is strictly newest-to-oldest!
+  // Se for "Todas", retorna todas as notícias estritamente em ordem cronológica
   if (isAll) {
-    const rotatingNews = buildBalancedRotatingFeed(allAvailableNews, rotationSeed, 12);
-    const taggedItems = rotatingNews.map((item) => ({
+    const sortedNews = [...allAvailableNews].sort((a, b) => getNewsTimestamp(b) - getNewsTimestamp(a));
+    const taggedItems = sortedNews.map((item) => ({
       ...item,
       tags: item.tags && item.tags.length > 0 ? item.tags : extractTagsForNewsItem(item),
     }));

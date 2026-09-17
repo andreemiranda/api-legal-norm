@@ -107,9 +107,15 @@ function MainPortal() {
   }, [authState.isAdmin]);
 
   // Realtime news loader from upstream API with 30-minute auto-refresh & visibilitychange
-  const loadLatestRealtimeNews = useCallback(async (isSilent = false) => {
+  const loadLatestRealtimeNews = useCallback(async (isSilent = false, forceBackendSync = false) => {
     try {
       if (!isSilent) setIsLoadingNews(true);
+      
+      if (forceBackendSync) {
+        // Trigger server-side upstream API synchronization asynchronously
+        fetch("/api/monitoring/sync", { method: "POST" }).catch(() => {});
+      }
+
       const newsRes = await fetch("/api/news?all=true");
       if (newsRes.ok) {
         const newsJson = await newsRes.json();
@@ -154,13 +160,13 @@ function MainPortal() {
     // 4. Automatic sync every 30 minutes
     const THIRTY_MINUTES_MS = 30 * 60 * 1000;
     const intervalId = setInterval(() => {
-      loadLatestRealtimeNews(true);
+      loadLatestRealtimeNews(true, true);
     }, THIRTY_MINUTES_MS);
 
     // 5. Automatic sync when user returns to the tab (visibilitychange)
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        loadLatestRealtimeNews(true);
+        loadLatestRealtimeNews(true, true);
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
