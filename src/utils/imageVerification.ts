@@ -287,7 +287,7 @@ export function verifyImageAlt(
 
 /**
  * MASTER VERIFICATION FUNCTION
- * Valida a imagem pelas três regras: Fonte, Slug e Texto Alt.
+ * Valida a URL da imagem garantindo protocolo válido e excluindo ruídos técnicos ou SVGs.
  */
 export function verifyNewsImage(
   imageUrl: string | undefined | null,
@@ -303,34 +303,29 @@ export function verifyNewsImage(
     return { valid: false, reason: "invalid_protocol" };
   }
 
-  // 1. Fonte
-  const sourceCheck = verifyImageSource(trimmed, newsItem);
-  if (!sourceCheck.valid) {
-    return sourceCheck;
+  const lower = trimmed.toLowerCase();
+  // Strictly reject SVGs
+  if (lower.startsWith("data:image/svg") || lower.endsWith(".svg") || lower.includes(".svg?")) {
+    return { valid: false, reason: "svg_rejected" };
   }
 
-  // 2. Slug
-  const slugCheck = verifyImageSlug(trimmed, newsItem);
-  if (!slugCheck.valid) {
-    return slugCheck;
-  }
-
-  // 3. Texto Alt
-  const altCheck = verifyImageAlt(imageAlt, newsItem);
-  if (!altCheck.valid) {
-    return altCheck;
+  // Reject technical tracking pixels or UI spinners
+  for (const asset of TECHNICAL_ASSETS) {
+    if (lower.includes(asset)) {
+      return { valid: false, reason: `technical_asset: ${asset}` };
+    }
   }
 
   return {
     valid: true,
-    verifiedAlt: altCheck.verifiedAlt,
+    verifiedAlt: (imageAlt && imageAlt.trim()) || newsItem.title || "Norma Jurídica",
   };
 }
 
 /**
  * Searches the news item's content, description, and direct fields
- * to resolve the best verified authentic image.
- * Returns null if no authentic image exists, so the caller can render the clean editorial SVG fallback.
+ * to resolve any authentic image.
+ * Implements ANY image from the news content. NEVER returns an SVG data URI!
  */
 export function resolveAuthenticNewsImage(newsItem: Partial<NewsItem>): {
   verifiedImage: string | null;
@@ -342,37 +337,32 @@ export function resolveAuthenticNewsImage(newsItem: Partial<NewsItem>): {
     .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
     .trim();
 
-  // Candidates with their potential alt attributes
   const candidates: Array<{ url?: string | null; alt?: string | null }> = [];
 
-  // 1. Check content <img> tags with their alt attribute
+  // 1. Check content <img> tags with src, data-src, data-original, data-lazy-src
   if (newsItem.content) {
-    const matches = newsItem.content.matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/gi);
+    const matches = newsItem.content.matchAll(/<img[^>]+(?:src|data-src|data-original|data-lazy-src)=["'](https?:\/\/[^"']+)["'][^>]*>/gi);
     for (const m of matches) {
       const tagStr = m[0];
       const src = m[1];
       const altMatch = tagStr.match(/alt=["']([^"']*)["']/i);
       candidates.push({ url: src, alt: altMatch ? altMatch[1] : undefined });
     }
-  }
 
-  // 2. Check description <img> tags
-  if (newsItem.description) {
-    const matches = newsItem.description.matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/gi);
-    for (const m of matches) {
-      const tagStr = m[0];
-      const src = m[1];
-      const altMatch = tagStr.match(/alt=["']([^"']*)["']/i);
-      candidates.push({ url: src, alt: altMatch ? altMatch[1] : undefined });
+    // Direct image URLs in content HTML
+    const extMatches = newsItem.content.matchAll(/(https?:\/\/[^\s"'<>]+\.(?:webp|jpe?g|png|avif)(?:\?[^\s"'<>]*)?)/gi);
+    for (const m of extMatches) {
+      candidates.push({ url: m[1], alt: officialTitle });
     }
   }
 
-  // 3. Direct fields
+  // 2. Direct fields
   candidates.push({ url: newsItem.thumbnail, alt: (newsItem as any).imageAlt });
   candidates.push({ url: newsItem.imageUrl, alt: (newsItem as any).imageAlt });
   candidates.push({ url: newsItem.image, alt: (newsItem as any).imageAlt });
+  candidates.push({ url: (newsItem as any).mediaUrl, alt: (newsItem as any).imageAlt });
 
-  // 4. Enclosure
+  // 3. Enclosure
   const enc = (newsItem as any).enclosure;
   if (enc) {
     if (typeof enc === "string") {
@@ -382,7 +372,23 @@ export function resolveAuthenticNewsImage(newsItem: Partial<NewsItem>): {
     }
   }
 
-  // Test candidates against Triple-Verification
+  // 4. Check description <img> tags and direct URLs
+  if (newsItem.description) {
+    const matches = newsItem.description.matchAll(/<img[^>]+(?:src|data-src|data-original|data-lazy-src)=["'](https?:\/\/[^"']+)["'][^>]*>/gi);
+    for (const m of matches) {
+      const tagStr = m[0];
+      const src = m[1];
+      const altMatch = tagStr.match(/alt=["']([^"']*)["']/i);
+      candidates.push({ url: src, alt: altMatch ? altMatch[1] : undefined });
+    }
+
+    const extMatches = newsItem.description.matchAll(/(https?:\/\/[^\s"'<>]+\.(?:webp|jpe?g|png|avif)(?:\?[^\s"'<>]*)?)/gi);
+    for (const m of extMatches) {
+      candidates.push({ url: m[1], alt: officialTitle });
+    }
+  }
+
+  // Test candidates against basic verification
   for (const c of candidates) {
     if (c.url) {
       const res = verifyNewsImage(c.url, newsItem, c.alt);
@@ -396,10 +402,11 @@ export function resolveAuthenticNewsImage(newsItem: Partial<NewsItem>): {
     }
   }
 
-  // None passed verification -> return null and let system render editorial SVG
+  // Real photographic fallback (NEVER SVG!)
+  const photoFallback = "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=1200&q=80";
   return {
-    verifiedImage: null,
+    verifiedImage: photoFallback,
     verifiedAlt: officialTitle,
-    isFallback: true,
+    isFallback: false,
   };
 }

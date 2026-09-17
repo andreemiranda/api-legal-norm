@@ -1,68 +1,104 @@
 // Utility to extract, optimize and render news images exclusively from API / content
-// STRICT RULE: News thumbnails and highlights must NEVER use images from the /public folder (such as /logo.jpg)
+// STRICT RULE: News thumbnails and highlights must NEVER use SVG fallbacks or placeholder graphics.
+// If an article contains ANY image in its content or fields, that image MUST be extracted and displayed.
 
 import { NewsItem } from "../types";
-import { verifyNewsImage, resolveAuthenticNewsImage } from "./imageVerification";
+import { verifyNewsImage, resolveAuthenticNewsImage, extractHostname } from "./imageVerification";
 
 /**
- * Creates an elegant SVG data URI as an editorial fallback placeholder
- * featuring the category and legal scales of justice.
- * Never references files from the /public folder.
+ * High-quality real editorial photographs for safe journalistic fallback.
+ * Strictly photographs — NEVER SVG graphics.
  */
-export function createEditorialFallbackSvg(category: string = "Notícia", title?: string): string {
-  const cat = (category || "Notícia").toUpperCase();
-  const cleanTitle = (title || "Norma Jurídica")
-    .slice(0, 45)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+export const EDITORIAL_FALLBACK_PHOTOS: Record<string, string[]> = {
+  "direito": [
+    "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1505664194779-8beaceb93744?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1453733197781-70d2df6f5466?auto=format&fit=crop&w=1200&q=80",
+  ],
+  "legislacao": [
+    "https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=1200&q=80",
+  ],
+  "economia": [
+    "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80",
+  ],
+  "tocantins": [
+    "https://atitudeto.com.br/wp-content/uploads/2026/09/941c721f-e315-4705-b048-26ec86a5159c.jpeg",
+    "https://jornalobico.com.br/wp-content/uploads/2026/07/3c8226e9-1cf6-49a9-8c3c-44417fb95879.jpeg",
+  ],
+  "default": [
+    "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1200&q=80",
+  ],
+};
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
-  <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0b1329"/>
-      <stop offset="50%" stop-color="#1e293b"/>
-      <stop offset="100%" stop-color="#020617"/>
-    </linearGradient>
-    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8"/>
-      <stop offset="100%" stop-color="#2563eb"/>
-    </linearGradient>
-  </defs>
-  <rect width="800" height="450" fill="url(#bgGrad)"/>
-  <rect x="20" y="20" width="760" height="410" rx="14" fill="none" stroke="#334155" stroke-width="1.5" stroke-dasharray="6 6"/>
-  <g transform="translate(370, 130) scale(2.6)" stroke="url(#goldGrad)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/>
-    <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/>
-    <path d="M7 21h10"/>
-    <path d="M12 3v18"/>
-    <path d="M3 7h18"/>
-  </g>
-  <rect x="280" y="255" width="240" height="32" rx="6" fill="#1d4ed8"/>
-  <text x="400" y="276" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="1.5">${cat}</text>
-  <text x="400" y="320" font-family="Georgia, serif" font-size="18" font-weight="bold" fill="#f8fafc" text-anchor="middle">${cleanTitle}</text>
-  <text x="400" y="348" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" fill="#94a3b8" text-anchor="middle">NORMA JURÍDICA • EDIÇÃO NACIONAL</text>
-</svg>`;
+/**
+ * Returns a real photographic fallback based on category or item seed.
+ * NEVER returns an SVG data URI!
+ */
+export function getEditorialFallbackPhoto(category?: string, seed?: string | number): string {
+  const normCat = (category || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  let list = EDITORIAL_FALLBACK_PHOTOS["default"];
+  if (normCat.includes("direit") || normCat.includes("jurid") || normCat.includes("judic") || normCat.includes("tribun")) {
+    list = EDITORIAL_FALLBACK_PHOTOS["direito"];
+  } else if (normCat.includes("legis") || normCat.includes("const") || normCat.includes("governo") || normCat.includes("polit")) {
+    list = EDITORIAL_FALLBACK_PHOTOS["legislacao"];
+  } else if (normCat.includes("econ") || normCat.includes("finan") || normCat.includes("tribut")) {
+    list = EDITORIAL_FALLBACK_PHOTOS["economia"];
+  } else if (normCat.includes("tocantins") || normCat.includes("palmas")) {
+    list = EDITORIAL_FALLBACK_PHOTOS["tocantins"];
+  }
 
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  let num = 0;
+  if (typeof seed === "number") num = Math.abs(seed);
+  else if (typeof seed === "string") {
+    for (let i = 0; i < seed.length; i++) num += seed.charCodeAt(i);
+  }
+  return list[num % list.length] || list[0];
 }
 
 /**
- * Checks if a string is a valid external or API image URL
- * Rejects any /logo.jpg, /favicon, /og-image, or empty strings
+ * Replaced: NEVER returns SVG. Returns an authentic editorial photo URL.
+ * Maintained for backwards compatibility across existing callers.
+ */
+export function createEditorialFallbackSvg(category: string = "Notícia", title?: string): string {
+  return getEditorialFallbackPhoto(category, title);
+}
+
+/**
+ * Checks if a string is a valid external or API image URL.
+ * Rejects technical assets and SVGs.
  */
 export function isValidApiImageUrl(url?: string | null): boolean {
   if (!url || typeof url !== "string") return false;
   const trimmed = url.trim();
   if (!trimmed) return false;
+
+  const lower = trimmed.toLowerCase();
+  // Reject SVGs and data URI SVGs
+  if (lower.startsWith("data:image/svg") || lower.endsWith(".svg") || lower.includes(".svg?")) {
+    return false;
+  }
+
+  // Reject local technical assets
   if (
     trimmed.includes("logo.jpg") ||
     trimmed.includes("favicon") ||
     trimmed.includes("og-image") ||
-    trimmed === "/logo.jpg"
+    trimmed === "/logo.jpg" ||
+    lower.includes("pixel.gif") ||
+    lower.includes("1x1") ||
+    lower.includes("spinner") ||
+    lower.includes("loading.gif") ||
+    lower.includes("blank.gif") ||
+    lower.includes("avatar") ||
+    lower.includes("submit-spin")
   ) {
     return false;
   }
+
   return trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("//");
 }
 
@@ -87,17 +123,17 @@ export function normalizeImageUrl(url?: string | null): string {
 }
 
 /**
- * Transforms an image URL to the optimized /next_imagem pattern
- * Supports relative, internal, and external images
+ * Transforms an image URL to a clean directly-fetchable or proxied URL.
+ * NEVER returns an SVG data URI!
  */
 export function toOptimizedImage(url?: string | null, category: string = "Notícia", title?: string): string {
   if (!url || typeof url !== "string") {
-    return createEditorialFallbackSvg(category, title);
+    return getEditorialFallbackPhoto(category, title);
   }
 
   const trimmed = url.trim();
   if (!trimmed || !isValidApiImageUrl(trimmed)) {
-    return createEditorialFallbackSvg(category, title);
+    return getEditorialFallbackPhoto(category, title);
   }
 
   // If already relative root or proxy
@@ -105,15 +141,108 @@ export function toOptimizedImage(url?: string | null, category: string = "Notíc
     return trimmed;
   }
 
-  // Return direct URL (browsers with referrerpolicy="no-referrer" load smoothly)
+  // Return direct URL with protocol
+  if (trimmed.startsWith("//")) {
+    return "https:" + trimmed;
+  }
+
   return trimmed;
 }
 
 export const getProxyImageUrl = toOptimizedImage;
 
 /**
- * Extracts a featured image, candidate chain, and secondary images from the post.
- * STRICT: Every candidate is validated across Source, Slug, and Alt text to prevent swapped images.
+ * Helper to extract all images from an HTML string (src, data-src, data-lazy-src, data-original, srcset, markdown, direct image links)
+ */
+function extractImagesFromHtml(html: string, addCandidate: (url: string) => void) {
+  if (!html || typeof html !== "string") return;
+
+  // 1. Match <img ...> with src, data-src, data-original, data-lazy-src
+  const imgTagRegex = /<img[^>]+(?:src|data-src|data-original|data-lazy-src)=["']([^"']+)["']/gi;
+  let m;
+  while ((m = imgTagRegex.exec(html)) !== null) {
+    if (m[1]) addCandidate(m[1]);
+  }
+
+  // 2. Match unquoted <img src=...>
+  const unquotedRegex = /<img[^>]+src=([^\s"'>]+)/gi;
+  while ((m = unquotedRegex.exec(html)) !== null) {
+    if (m[1]) addCandidate(m[1]);
+  }
+
+  // 3. Match srcset
+  const srcsetRegex = /srcset=["']([^"']+)["']/gi;
+  while ((m = srcsetRegex.exec(html)) !== null) {
+    const parts = m[1].split(",");
+    for (const part of parts) {
+      const u = part.trim().split(/\s+/)[0];
+      if (u) addCandidate(u);
+    }
+  }
+
+  // 4. Match markdown images ![alt](url)
+  const mdRegex = /!\[.*?\]\((https?:\/\/[^\s\)]+)\)/gi;
+  while ((m = mdRegex.exec(html)) !== null) {
+    if (m[1]) addCandidate(m[1]);
+  }
+
+  // 5. Match direct image URLs in text (.webp, .jpg, .jpeg, .png, .avif)
+  const directUrlRegex = /(https?:\/\/[^\s"'<>]+\.(?:webp|jpe?g|png|avif)(?:\?[^\s"'<>]*)?)/gi;
+  while ((m = directUrlRegex.exec(html)) !== null) {
+    if (m[1]) addCandidate(m[1]);
+  }
+}
+
+/**
+ * Extracts ALL unique authentic image URLs found across any content or metadata field of a news item.
+ */
+export function extractAllItemImages(item?: Partial<NewsItem> | null): string[] {
+  if (!item) return [];
+  const found: string[] = [];
+  const seenNorm = new Set<string>();
+
+  const addCandidate = (raw?: string | null) => {
+    if (!raw || typeof raw !== "string") return;
+    let candidate = raw.trim();
+    if (candidate.startsWith("//")) candidate = "https:" + candidate;
+    if (!isValidApiImageUrl(candidate)) return;
+
+    const norm = normalizeImageUrl(candidate);
+    if (norm && !seenNorm.has(norm)) {
+      seenNorm.add(norm);
+      found.push(candidate);
+    }
+  };
+
+  // 1. Content HTML (first priority: journalist's embedded article photos)
+  if (item.content) {
+    extractImagesFromHtml(item.content, addCandidate);
+  }
+
+  // 2. Direct fields from API/RSS
+  addCandidate(item.thumbnail);
+  addCandidate(item.imageUrl);
+  addCandidate(item.image);
+  addCandidate((item as any)?.mediaUrl);
+
+  // 3. Enclosure
+  const enc = (item as any)?.enclosure;
+  if (enc) {
+    if (typeof enc === "string") addCandidate(enc);
+    else if (typeof enc === "object" && enc.url) addCandidate(enc.url);
+  }
+
+  // 4. Description HTML
+  if (item.description) {
+    extractImagesFromHtml(item.description, addCandidate);
+  }
+
+  return found;
+}
+
+/**
+ * Extracts the featured image, candidate chain, and secondary images from the post.
+ * Implements ANY image from the news content without SVG fallback.
  */
 export function extractPostImages(item: Partial<NewsItem>): {
   featuredImage: string;
@@ -121,66 +250,27 @@ export function extractPostImages(item: Partial<NewsItem>): {
   otherImages: string[];
   verifiedAlt: string;
 } {
-  const images: string[] = [];
   const cleanTitle = (item.title || "Notícia")
     .replace(/^(\s*da\s+redação[\s:-]*|\s*da\s+redacao[\s:-]*)/gi, "")
     .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
     .trim();
 
-  const addCandidate = (candidate?: string | null, altCandidate?: string | null) => {
-    if (candidate && isValidApiImageUrl(candidate)) {
-      // Triple verification: Source, Slug, and Alt
-      const verification = verifyNewsImage(candidate, item, altCandidate);
-      if (verification.valid) {
-        const norm = normalizeImageUrl(candidate);
-        if (norm && !images.some((img) => normalizeImageUrl(img) === norm)) {
-          images.push(candidate.trim());
-        }
-      }
-    }
-  };
+  // Extract all authentic images from content and metadata
+  const images = extractAllItemImages(item);
 
-  // 1. Check content HTML images first (often the most article-specific)
-  if (item.content) {
-    const matches = item.content.matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/gi);
-    for (const match of matches) {
-      const tagStr = match[0];
-      const src = match[1];
-      const altMatch = tagStr.match(/alt=["']([^"']*)["']/i);
-      addCandidate(src, altMatch ? altMatch[1] : undefined);
-    }
+  // If no images could be found in the article, fallback to a real journalistic photograph (NEVER SVG!)
+  if (images.length === 0) {
+    const photoFallback = getEditorialFallbackPhoto(item.category, item.id || item.title);
+    return {
+      featuredImage: photoFallback,
+      candidates: [photoFallback],
+      otherImages: [],
+      verifiedAlt: cleanTitle,
+    };
   }
 
-  // 2. Direct API / RSS fields
-  addCandidate(item.thumbnail, (item as any)?.imageAlt);
-  addCandidate(item.imageUrl, (item as any)?.imageAlt);
-  addCandidate(item.image, (item as any)?.imageAlt);
-
-  // 3. Enclosure field
-  const enc = (item as any)?.enclosure;
-  if (enc) {
-    if (typeof enc === "string") {
-      addCandidate(enc, cleanTitle);
-    } else if (typeof enc === "object" && enc.url) {
-      addCandidate(enc.url, enc.title || enc.description || cleanTitle);
-    }
-  }
-
-  // 4. Extract from description HTML
-  if (item.description) {
-    const matches = item.description.matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/gi);
-    for (const match of matches) {
-      const tagStr = match[0];
-      const src = match[1];
-      const altMatch = tagStr.match(/alt=["']([^"']*)["']/i);
-      addCandidate(src, altMatch ? altMatch[1] : undefined);
-    }
-  }
-
-  // Fallback vector SVG if no images passed the verification
-  const fallbackSvg = createEditorialFallbackSvg(item.category || "Notícia", item.title);
-  const featuredImage = images[0] || fallbackSvg;
-  const candidates = images.length > 0 ? [...images, fallbackSvg] : [fallbackSvg];
+  const featuredImage = images[0];
+  const candidates = images;
   const otherImages = images.slice(1);
 
   return {
@@ -192,7 +282,8 @@ export function extractPostImages(item: Partial<NewsItem>): {
 }
 
 /**
- * Extracts a featured image or fallback SVG from any available field in the news item
+ * Extracts a featured image from any available field or content in the news item.
+ * NEVER returns an SVG data URI!
  */
 export function getPostThumbnail(item: Partial<NewsItem>): string {
   const { featuredImage } = extractPostImages(item);
@@ -203,8 +294,7 @@ export function getPostThumbnail(item: Partial<NewsItem>): string {
  * Processes post HTML content:
  * - Removes "da redação" text/paragraphs
  * - Guarantees referrerpolicy="no-referrer" and loading="lazy" on all <img> tags
- * - Removes duplicate images that match the featured image or already appeared in the body
- * - Eliminates any internal public folder image references
+ * - NEVER deletes valid images from the news body!
  */
 export function processPostContent(
   rawHtml?: string,
@@ -213,12 +303,6 @@ export function processPostContent(
 ): string {
   if (!rawHtml) return "";
 
-  const seenImages = new Set<string>();
-  if (featuredImageUrl) {
-    const norm = normalizeImageUrl(featuredImageUrl);
-    if (norm) seenImages.add(norm);
-  }
-
   // Remove "da redação" text, headers, and paragraphs
   let html = rawHtml
     .replace(/<p[^>]*>\s*(da\s+redação|da\s+redacao|redação|redacao)\s*<\/p>/gi, "")
@@ -226,51 +310,17 @@ export function processPostContent(
     .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
     .replace(/\bRedação Norma Jurídica\b/gi, "Norma Jurídica");
 
-  // Rewrite and deduplicate images in <figure>
-  html = html.replace(/<figure[^>]*>([\s\S]*?)<\/figure>/gi, (figureMatch, inner) => {
-    const imgMatch = inner.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i);
-    if (imgMatch && imgMatch[1]) {
-      const src = imgMatch[1];
-      if (!isValidApiImageUrl(src)) return "";
-
-      // Check verification if newsItem is provided
-      if (newsItem) {
-        const altMatch = inner.match(/alt=["']([^"']*)["']/i);
-        const verification = verifyNewsImage(src, newsItem, altMatch ? altMatch[1] : undefined);
-        if (!verification.valid) return "";
-      }
-
-      const norm = normalizeImageUrl(src);
-      if (seenImages.has(norm)) {
-        return ""; // Strip duplicate figure
-      }
-      seenImages.add(norm);
-      return figureMatch.replace(
-        /<img([^>]+)>/i,
-        `<img$1 referrerpolicy="no-referrer" loading="lazy">`
-      );
+  // Ensure all <img> tags have referrerpolicy="no-referrer" and loading="lazy"
+  // Keep all images intact!
+  html = html.replace(/<img([^>]+)>/gi, (match, attrs) => {
+    let cleanAttrs = attrs;
+    if (!cleanAttrs.includes("referrerpolicy")) {
+      cleanAttrs += ` referrerpolicy="no-referrer"`;
     }
-    return figureMatch;
-  });
-
-  // Rewrite standard <img> tags
-  html = html.replace(/<img([^>]+)src=["']([^"']+)["']([^>]*)>/gi, (match, before, src, after) => {
-    if (!isValidApiImageUrl(src)) return "";
-
-    // Check verification if newsItem is provided
-    if (newsItem) {
-      const combinedTag = `${before} ${after}`;
-      const altMatch = combinedTag.match(/alt=["']([^"']*)["']/i);
-      const verification = verifyNewsImage(src, newsItem, altMatch ? altMatch[1] : undefined);
-      if (!verification.valid) return "";
+    if (!cleanAttrs.includes("loading")) {
+      cleanAttrs += ` loading="lazy"`;
     }
-
-    const norm = normalizeImageUrl(src);
-    if (seenImages.has(norm)) {
-      return ""; // Strip duplicate image
-    }
-    seenImages.add(norm);
-    return `<img${before}src="${src}" referrerpolicy="no-referrer" loading="lazy"${after}>`;
+    return `<img${cleanAttrs}>`;
   });
 
   // Clean empty figures or excessive breaks

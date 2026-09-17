@@ -201,10 +201,7 @@ function cleanSlug(item: any): string {
 
 function extractImage(item: any): string | null {
   const resolved = resolveAuthenticNewsImage(item);
-  if (!resolved.isFallback && resolved.verifiedImage) {
-    return resolved.verifiedImage;
-  }
-  return null;
+  return resolved.verifiedImage || null;
 }
 
 function cleanEditorialText(text?: string): string {
@@ -268,9 +265,9 @@ function processAndApplySobrescricao(rawNews: any[]) {
         content: cleanContent,
       };
 
-      // Triple verification: Fonte, Slug e Texto Alt
+      // Extract any authentic image from content and fields (never wipe out to "")
       const resolved = resolveAuthenticNewsImage(itemWithCleanText);
-      const verifiedImgUrl = resolved.isFallback ? "" : (resolved.verifiedImage || "");
+      const verifiedImgUrl = resolved.verifiedImage || "";
       const verifiedAlt = resolved.verifiedAlt || decodedTitle;
 
       return {
@@ -465,17 +462,13 @@ function getSiteDomain(req: express.Request): string {
   }
 }
 
-// Fallback SVG for image errors
-function sendFallbackImage(res: express.Response) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
-    <rect width="800" height="450" fill="#0b1329"/>
-    <rect x="20" y="20" width="760" height="410" fill="none" stroke="#1e3a8a" stroke-width="2" rx="12"/>
-    <text x="400" y="220" font-family="sans-serif" font-size="24" font-weight="bold" fill="#60a5fa" text-anchor="middle">NORMA JURÍDICA</text>
-    <text x="400" y="255" font-family="sans-serif" font-size="14" fill="#94a3b8" text-anchor="middle">Portal de Notícias e Legislação</text>
-  </svg>`;
-  res.setHeader("Content-Type", "image/svg+xml");
-  res.setHeader("Cache-Control", "public, max-age=86400");
-  return res.send(svg);
+// Fallback for image proxy errors: redirects to source image or authentic photograph (NEVER SVG!)
+function sendFallbackImage(res: express.Response, redirectUrl?: string) {
+  if (redirectUrl && (redirectUrl.startsWith("http://") || redirectUrl.startsWith("https://"))) {
+    return res.redirect(302, redirectUrl);
+  }
+  // Authentic editorial news photo fallback
+  return res.redirect(302, "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=1200&q=80");
 }
 
 // -------------------------------------------------------------
@@ -518,7 +511,7 @@ app.get(["/next_imagem", "/next_image"], async (req, res) => {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
         Referer: parsed.origin + "/",
       },
     });
@@ -526,7 +519,8 @@ app.get(["/next_imagem", "/next_image"], async (req, res) => {
     clearTimeout(timeout);
 
     if (!imgRes.ok) {
-      return sendFallbackImage(res);
+      // Direct client browser to original image (loads smoothly with referrerpolicy="no-referrer")
+      return res.redirect(302, targetUrl);
     }
 
     const contentType = imgRes.headers.get("content-type") || "image/jpeg";
@@ -536,7 +530,8 @@ app.get(["/next_imagem", "/next_image"], async (req, res) => {
     const arrayBuffer = await imgRes.arrayBuffer();
     return res.send(Buffer.from(arrayBuffer));
   } catch {
-    return sendFallbackImage(res);
+    // If proxy fetch fails or times out, redirect to source URL
+    return res.redirect(302, rawUrl);
   }
 });
 
