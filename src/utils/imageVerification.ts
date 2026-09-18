@@ -132,9 +132,8 @@ export function verifyImageSource(
     return { valid: false, reason: "invalid_image_url" };
   }
 
-  // Permitted universal static CDNs
+  // Permitted universal static CDNs (Unsplash and stock APIs strictly excluded)
   if (
-    imgHost.includes("unsplash.com") ||
     imgHost.includes("wikimedia.org") ||
     imgHost.includes("licdn.com") ||
     imgHost.includes("cloud.google.com")
@@ -299,11 +298,21 @@ export function verifyNewsImage(
   }
 
   const trimmed = imageUrl.trim();
-  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") && !trimmed.startsWith("//")) {
+  if (
+    !trimmed.startsWith("http://") &&
+    !trimmed.startsWith("https://") &&
+    !trimmed.startsWith("//") &&
+    !trimmed.startsWith("data:image/")
+  ) {
     return { valid: false, reason: "invalid_protocol" };
   }
 
   const lower = trimmed.toLowerCase();
+  // STRICT RULE: Reject Unsplash and any third-party stock photo API fallback
+  if (lower.includes("unsplash.com") || lower.includes("stockphoto") || lower.includes("shutterstock") || lower.includes("gettyimages")) {
+    return { valid: false, reason: "external_api_banned" };
+  }
+
   // Strictly reject SVGs
   if (lower.startsWith("data:image/svg") || lower.endsWith(".svg") || lower.includes(".svg?")) {
     return { valid: false, reason: "svg_rejected" };
@@ -324,89 +333,145 @@ export function verifyNewsImage(
 
 /**
  * Searches the news item's content, description, and direct fields
- * to resolve any authentic image.
- * Implements ANY image from the news content. NEVER returns an SVG data URI!
+ * across the most diverse image formats (.jpg, .jpeg, .png, .webp, .avif, .gif, .bmp, .tiff, .jfif, .heic).
+ * Returns authentic images from the article's own content (1st, 2nd, etc.).
+ * NEVER uses Unsplash or external API fallbacks.
  */
 export function resolveAuthenticNewsImage(newsItem: Partial<NewsItem>): {
   verifiedImage: string | null;
   verifiedAlt: string;
   isFallback: boolean;
+  candidates?: string[];
 } {
   const officialTitle = (newsItem.title || "Notícia")
     .replace(/^(\s*da\s+redação[\s:-]*|\s*da\s+redacao[\s:-]*)/gi, "")
     .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
     .trim();
 
-  const candidates: Array<{ url?: string | null; alt?: string | null }> = [];
+  const foundUrls: string[] = [];
+  const seenNorm = new Set<string>();
 
-  // 1. Check content <img> tags with src, data-src, data-original, data-lazy-src
-  if (newsItem.content) {
-    const matches = newsItem.content.matchAll(/<img[^>]+(?:src|data-src|data-original|data-lazy-src)=["'](https?:\/\/[^"']+)["'][^>]*>/gi);
-    for (const m of matches) {
-      const tagStr = m[0];
-      const src = m[1];
-      const altMatch = tagStr.match(/alt=["']([^"']*)["']/i);
-      candidates.push({ url: src, alt: altMatch ? altMatch[1] : undefined });
+  const addCandidate = (rawUrl?: string | null) => {
+    if (!rawUrl || typeof rawUrl !== "string") return;
+    let url = rawUrl.trim();
+    if (url.startsWith("&quot;") || url.endsWith("&quot;")) url = url.replace(/^&quot;|&quot;$/g, "");
+    if (url.startsWith("&#39;") || url.endsWith("&#39;")) url = url.replace(/^&#39;|&#39;$/g, "");
+    if (url.startsWith("//")) url = "https:" + url;
+    url = url.replace(/&amp;/g, "&");
+
+    const vRes = verifyNewsImage(url, newsItem);
+    if (!vRes.valid) return;
+
+    const norm = url.split("?")[0].replace(/^https?:\/\//, "").toLowerCase();
+    if (!seenNorm.has(norm)) {
+      seenNorm.add(norm);
+      foundUrls.push(url);
     }
+  };
 
-    // Direct image URLs in content HTML
-    const extMatches = newsItem.content.matchAll(/(https?:\/\/[^\s"'<>]+\.(?:webp|jpe?g|png|avif)(?:\?[^\s"'<>]*)?)/gi);
-    for (const m of extMatches) {
-      candidates.push({ url: m[1], alt: officialTitle });
-    }
-  }
+  // 1. Direct news fields (authoritative sources)
+  addCandidate(newsItem.thumbnail);
+  addCandidate(newsItem.imageUrl);
+  addCandidate(newsItem.image);
+  addCandidate((newsItem as any)?.mediaUrl);
+  addCandidate((newsItem as any)?.photo);
+  addCandidate((newsItem as any)?.cover);
 
-  // 2. Direct fields
-  candidates.push({ url: newsItem.thumbnail, alt: (newsItem as any).imageAlt });
-  candidates.push({ url: newsItem.imageUrl, alt: (newsItem as any).imageAlt });
-  candidates.push({ url: newsItem.image, alt: (newsItem as any).imageAlt });
-  candidates.push({ url: (newsItem as any).mediaUrl, alt: (newsItem as any).imageAlt });
-
-  // 3. Enclosure
-  const enc = (newsItem as any).enclosure;
+  const enc = (newsItem as any)?.enclosure;
   if (enc) {
-    if (typeof enc === "string") {
-      candidates.push({ url: enc, alt: officialTitle });
-    } else if (typeof enc === "object" && enc.url) {
-      candidates.push({ url: enc.url, alt: enc.title || enc.description || officialTitle });
-    }
+    if (typeof enc === "string") addCandidate(enc);
+    else if (typeof enc === "object" && enc.url) addCandidate(enc.url);
+  }
+  const mediaContent = (newsItem as any)?.["media:content"];
+  if (mediaContent) {
+    if (typeof mediaContent === "string") addCandidate(mediaContent);
+    else if (typeof mediaContent === "object" && mediaContent.url) addCandidate(mediaContent.url);
+  }
+  const mediaThumb = (newsItem as any)?.["media:thumbnail"];
+  if (mediaThumb) {
+    if (typeof mediaThumb === "string") addCandidate(mediaThumb);
+    else if (typeof mediaThumb === "object" && mediaThumb.url) addCandidate(mediaThumb.url);
   }
 
-  // 4. Check description <img> tags and direct URLs
-  if (newsItem.description) {
-    const matches = newsItem.description.matchAll(/<img[^>]+(?:src|data-src|data-original|data-lazy-src)=["'](https?:\/\/[^"']+)["'][^>]*>/gi);
-    for (const m of matches) {
-      const tagStr = m[0];
-      const src = m[1];
-      const altMatch = tagStr.match(/alt=["']([^"']*)["']/i);
-      candidates.push({ url: src, alt: altMatch ? altMatch[1] : undefined });
+  // 2. Scan all content and description text across diverse image formats
+  const textPool = [
+    newsItem.content,
+    newsItem.description,
+    (newsItem as any)?.["content:encoded"],
+    (newsItem as any)?.body,
+    (newsItem as any)?.summary,
+  ].filter(Boolean).join(" ");
+
+  if (textPool) {
+    // 2a. Any <img> with src, data-src, data-original, data-lazy-src, data-hi-res-src, data-actualsrc, etc.
+    const attrRegex = /<img[^>]+(?:src|data-src|data-original|data-lazy-src|data-hi-res-src|data-actualsrc|data-default-src|data-url|data-fallback)=["']([^"']+)["']/gi;
+    let m;
+    while ((m = attrRegex.exec(textPool)) !== null) {
+      addCandidate(m[1]);
     }
 
-    const extMatches = newsItem.description.matchAll(/(https?:\/\/[^\s"'<>]+\.(?:webp|jpe?g|png|avif)(?:\?[^\s"'<>]*)?)/gi);
-    for (const m of extMatches) {
-      candidates.push({ url: m[1], alt: officialTitle });
+    // 2b. Unquoted <img src=...>
+    const unquotedRegex = /<img[^>]+src=([^\s"'>]+)/gi;
+    while ((m = unquotedRegex.exec(textPool)) !== null) {
+      addCandidate(m[1]);
     }
-  }
 
-  // Test candidates against basic verification
-  for (const c of candidates) {
-    if (c.url) {
-      const res = verifyNewsImage(c.url, newsItem, c.alt);
-      if (res.valid) {
-        return {
-          verifiedImage: c.url.trim(),
-          verifiedAlt: res.verifiedAlt || officialTitle,
-          isFallback: false,
-        };
+    // 2c. srcset or data-srcset
+    const srcsetRegex = /(?:srcset|data-srcset)=["']([^"']+)["']/gi;
+    while ((m = srcsetRegex.exec(textPool)) !== null) {
+      const parts = m[1].split(",");
+      for (const p of parts) {
+        const u = p.trim().split(/\s+/)[0];
+        if (u) addCandidate(u);
       }
     }
+
+    // 2d. HTML-escaped image tags (&lt;img ... src=&quot;...&quot;)
+    const escapedRegex = /&lt;img[^&]+(?:src|data-src)=&quot;([^&]+)&quot;/gi;
+    while ((m = escapedRegex.exec(textPool)) !== null) {
+      addCandidate(m[1]);
+    }
+
+    // 2e. Markdown images ![alt](url)
+    const mdRegex = /!\[.*?\]\((https?:\/\/[^\s\)]+)\)/gi;
+    while ((m = mdRegex.exec(textPool)) !== null) {
+      addCandidate(m[1]);
+    }
+
+    // 2f. CSS background-image
+    const cssRegex = /url\(["']?(https?:\/\/[^\)"']+)["']?\)/gi;
+    while ((m = cssRegex.exec(textPool)) !== null) {
+      addCandidate(m[1]);
+    }
+
+    // 2g. Regex covering diverse image formats (.jpg, .jpeg, .png, .webp, .avif, .gif, .bmp, .tiff, .jfif, .heic)
+    const formatsRegex = /(https?:\/\/[^\s"'<>]+\.(?:jpe?g|png|webp|avif|gif|bmp|tiff|jfif|heic)(?:\?[^\s"'<>]*)?)/gi;
+    while ((m = formatsRegex.exec(textPool)) !== null) {
+      addCandidate(m[1]);
+    }
+
+    // 2h. Globo / News CDN paths (e.g. s2-g1.glbimg.com)
+    const cdnRegex = /(https?:\/\/s2-[a-z0-9]+\.glbimg\.com\/[^\s"'<>]+)/gi;
+    while ((m = cdnRegex.exec(textPool)) !== null) {
+      addCandidate(m[1]);
+    }
   }
 
-  // Real photographic fallback (NEVER SVG!)
-  const photoFallback = "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=1200&q=80";
+  // If any valid images found in article content, use the 1st or 2nd from that content
+  if (foundUrls.length > 0) {
+    return {
+      verifiedImage: foundUrls[0],
+      verifiedAlt: officialTitle,
+      isFallback: false,
+      candidates: foundUrls,
+    };
+  }
+
+  // When no images exist in the article content, return null (STRICT: NO UNSPLASH, NO EXTERNAL API FALLBACK)
   return {
-    verifiedImage: photoFallback,
+    verifiedImage: null,
     verifiedAlt: officialTitle,
     isFallback: false,
+    candidates: [],
   };
 }

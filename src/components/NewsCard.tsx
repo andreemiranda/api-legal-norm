@@ -30,7 +30,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item, onSelect, layout = "ve
   }, [item.description, item.content]);
 
   const readingTime = calculateReadingTime(item.content || item.description);
-  const currentImageSrc = candidates[candidateIdx] || candidates[candidates.length - 1];
+  const currentImageSrc = (candidates && candidates.length > candidateIdx) ? candidates[candidateIdx] : (candidates && candidates[0]) || "";
 
   const handleImageError = () => {
     if (candidateIdx + 1 < candidates.length) {
@@ -44,16 +44,22 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item, onSelect, layout = "ve
         onClick={() => onSelect(item)}
         className="group cursor-pointer bg-slate-900/70 hover:bg-slate-900 border border-blue-900/30 hover:border-blue-700/60 rounded-xl p-3.5 flex flex-col sm:flex-row gap-4 transition-all duration-200 shadow-sm hover:shadow-md select-none"
       >
-        {/* Thumbnail - Exclusively API/source image with progressive fallback */}
-        <div className="w-full sm:w-44 h-36 sm:h-32 rounded-lg overflow-hidden shrink-0 relative bg-slate-950">
-          <img
-            src={currentImageSrc}
-            alt={cleanTitle}
-            loading="lazy"
-            referrerPolicy="no-referrer"
-            onError={handleImageError}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
+        {/* Thumbnail - Exclusively content image */}
+        <div className="w-full sm:w-44 h-36 sm:h-32 rounded-lg overflow-hidden shrink-0 relative bg-slate-950 flex items-center justify-center">
+          {currentImageSrc ? (
+            <img
+              src={currentImageSrc}
+              alt={cleanTitle}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              onError={handleImageError}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-slate-900 via-slate-950 to-blue-950/40 p-3 text-center">
+              <span className="text-xs font-semibold text-blue-400/80 uppercase tracking-wider">{item.category || "Notícia"}</span>
+            </div>
+          )}
           <span className="absolute top-2 left-2 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-600/90 text-white backdrop-blur">
             {item.category || "Geral"}
           </span>
@@ -98,16 +104,22 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item, onSelect, layout = "ve
       onClick={() => onSelect(item)}
       className="group cursor-pointer bg-slate-900/70 hover:bg-slate-900 border border-blue-900/30 hover:border-blue-700/60 rounded-xl overflow-hidden flex flex-col transition-all duration-200 shadow-sm hover:shadow-md select-none"
     >
-      {/* Thumbnail - Exclusively API/source image with progressive fallback */}
-      <div className="w-full h-44 relative bg-slate-950 overflow-hidden">
-        <img
-          src={currentImageSrc}
-          alt={cleanTitle}
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          onError={handleImageError}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-        />
+      {/* Thumbnail - Exclusively content image */}
+      <div className="w-full h-44 relative bg-slate-950 overflow-hidden flex items-center justify-center">
+        {currentImageSrc ? (
+          <img
+            src={currentImageSrc}
+            alt={cleanTitle}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={handleImageError}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-slate-900 via-slate-950 to-blue-950/40 p-4 text-center">
+            <span className="text-sm font-semibold text-blue-400/80 uppercase tracking-wider">{item.category || "Notícia"}</span>
+          </div>
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent opacity-80" />
 
         <span className="absolute top-2.5 left-2.5 px-2.5 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-blue-600 text-white shadow">

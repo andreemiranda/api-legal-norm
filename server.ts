@@ -224,6 +224,80 @@ try {
   if (fs.existsSync(srcPath)) {
     sourcesData = JSON.parse(fs.readFileSync(srcPath, "utf-8"));
   }
+
+  // Ensure newly configured Justiça sources are directly in code without needing manual chat input
+  const defaultJusticaSources = [
+    {
+      id: 528374619283746,
+      category: "Justiça",
+      site: "https://api-news-media.netlify.app/api/news/528374619283746",
+      type: "wp-api",
+      url: "https://api-news-media.netlify.app/api/news/528374619283746",
+      active: true,
+      _links: { self: { href: "https://api-news-media.netlify.app/api/news/528374619283746" } },
+      originalSite: "normajuridica.com"
+    },
+    {
+      id: 194728365019283,
+      category: "Justiça",
+      site: "https://api-news-media.netlify.app/api/news/194728365019283",
+      type: "wp-api",
+      url: "https://api-news-media.netlify.app/api/news/194728365019283",
+      active: true,
+      _links: { self: { href: "https://api-news-media.netlify.app/api/news/194728365019283" } },
+      originalSite: "normajuridica.com"
+    },
+    {
+      id: 736482910573649,
+      category: "Justiça",
+      site: "https://api-news-media.netlify.app/api/news/736482910573649",
+      type: "wp-api",
+      url: "https://api-news-media.netlify.app/api/news/736482910573649",
+      active: true,
+      _links: { self: { href: "https://api-news-media.netlify.app/api/news/736482910573649" } },
+      originalSite: "normajuridica.com"
+    },
+    {
+      id: 813947265038471,
+      category: "Justiça",
+      site: "https://api-news-media.netlify.app/api/news/813947265038471",
+      type: "wp-api",
+      url: "https://api-news-media.netlify.app/api/news/813947265038471",
+      active: true,
+      _links: { self: { href: "https://api-news-media.netlify.app/api/news/813947265038471" } },
+      originalSite: "normajuridica.com"
+    }
+  ];
+
+  for (const src of defaultJusticaSources) {
+    if (!sourcesData.some((s) => String(s.id) === String(src.id))) {
+      sourcesData.push(src);
+    }
+  }
+
+  // Dynamically load any additional NEWS_API_SOURCE_* from environment variables
+  Object.keys(process.env).forEach((envKey) => {
+    const match = envKey.match(/^NEWS_API_SOURCE_(\d+)_ID$/);
+    if (match) {
+      const idx = match[1];
+      const sourceId = process.env[envKey];
+      const category = process.env[`NEWS_API_SOURCE_${idx}_CATEGORY`] || "Justiça";
+      const site = process.env[`NEWS_API_SOURCE_${idx}_SITE`] || `https://api-news-media.netlify.app/api/news/${sourceId}`;
+      const endpoint = process.env[`NEWS_API_SOURCE_${idx}_ENDPOINT`] || `/api/news/${sourceId}`;
+      if (sourceId && !sourcesData.some((s) => String(s.id) === String(sourceId))) {
+        sourcesData.push({
+          id: isNaN(Number(sourceId)) ? sourceId : Number(sourceId),
+          category,
+          site,
+          type: "wp-api",
+          url: site.startsWith("http") ? site : `https://api-news-media.netlify.app${endpoint}`,
+          active: true,
+          _links: { self: { href: site.startsWith("http") ? site : `https://api-news-media.netlify.app${endpoint}` } },
+          originalSite: "normajuridica.com"
+        });
+      }
+    }
+  });
   const mediaPath = path.join(process.cwd(), "src", "data", "mediaImages.json");
   if (fs.existsSync(mediaPath)) {
     mediaPoolData = JSON.parse(fs.readFileSync(mediaPath, "utf-8"));
@@ -462,13 +536,12 @@ function getSiteDomain(req: express.Request): string {
   }
 }
 
-// Fallback for image proxy errors: redirects to source image or authentic photograph (NEVER SVG!)
+// Fallback for image proxy errors: redirects to source image or returns 404 (STRICTLY NO UNSPLASH OR STOCK APIS!)
 function sendFallbackImage(res: express.Response, redirectUrl?: string) {
   if (redirectUrl && (redirectUrl.startsWith("http://") || redirectUrl.startsWith("https://"))) {
     return res.redirect(302, redirectUrl);
   }
-  // Authentic editorial news photo fallback
-  return res.redirect(302, "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=1200&q=80");
+  return res.status(404).end();
 }
 
 // -------------------------------------------------------------

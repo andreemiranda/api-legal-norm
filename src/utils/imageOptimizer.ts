@@ -1,75 +1,29 @@
-// Utility to extract, optimize and render news images exclusively from API / content
-// STRICT RULE: News thumbnails and highlights must NEVER use SVG fallbacks or placeholder graphics.
-// If an article contains ANY image in its content or fields, that image MUST be extracted and displayed.
+// Utility to extract, optimize and render news images exclusively from news article content
+// STRICT RULE: Unsplash API, external stock photo APIs, and placeholder fallbacks are STRICTLY REMOVED.
+// If an article contains ANY image in its content or fields across diverse formats, that image (1st, 2nd, etc.) is extracted and used.
 
 import { NewsItem } from "../types";
-import { verifyNewsImage, resolveAuthenticNewsImage, extractHostname } from "./imageVerification";
+import { verifyNewsImage, extractHostname } from "./imageVerification";
 
 /**
- * High-quality real editorial photographs for safe journalistic fallback.
- * Strictly photographs — NEVER SVG graphics.
+ * Fallback photo helper kept for interface compatibility, but returns empty string.
+ * Strictly NO Unsplash or third-party stock photo APIs.
  */
-export const EDITORIAL_FALLBACK_PHOTOS: Record<string, string[]> = {
-  "direito": [
-    "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1505664194779-8beaceb93744?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1453733197781-70d2df6f5466?auto=format&fit=crop&w=1200&q=80",
-  ],
-  "legislacao": [
-    "https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=1200&q=80",
-  ],
-  "economia": [
-    "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80",
-  ],
-  "tocantins": [
-    "https://atitudeto.com.br/wp-content/uploads/2026/09/941c721f-e315-4705-b048-26ec86a5159c.jpeg",
-    "https://jornalobico.com.br/wp-content/uploads/2026/07/3c8226e9-1cf6-49a9-8c3c-44417fb95879.jpeg",
-  ],
-  "default": [
-    "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=1200&q=80",
-    "https://images.unsplash.com/photo-1541872703-74c5e44368f9?auto=format&fit=crop&w=1200&q=80",
-  ],
-};
-
-/**
- * Returns a real photographic fallback based on category or item seed.
- * NEVER returns an SVG data URI!
- */
-export function getEditorialFallbackPhoto(category?: string, seed?: string | number): string {
-  const normCat = (category || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  let list = EDITORIAL_FALLBACK_PHOTOS["default"];
-  if (normCat.includes("direit") || normCat.includes("jurid") || normCat.includes("judic") || normCat.includes("tribun")) {
-    list = EDITORIAL_FALLBACK_PHOTOS["direito"];
-  } else if (normCat.includes("legis") || normCat.includes("const") || normCat.includes("governo") || normCat.includes("polit")) {
-    list = EDITORIAL_FALLBACK_PHOTOS["legislacao"];
-  } else if (normCat.includes("econ") || normCat.includes("finan") || normCat.includes("tribut")) {
-    list = EDITORIAL_FALLBACK_PHOTOS["economia"];
-  } else if (normCat.includes("tocantins") || normCat.includes("palmas")) {
-    list = EDITORIAL_FALLBACK_PHOTOS["tocantins"];
-  }
-
-  let num = 0;
-  if (typeof seed === "number") num = Math.abs(seed);
-  else if (typeof seed === "string") {
-    for (let i = 0; i < seed.length; i++) num += seed.charCodeAt(i);
-  }
-  return list[num % list.length] || list[0];
+export function getEditorialFallbackPhoto(_category?: string, _seed?: string | number): string {
+  return "";
 }
 
 /**
- * Replaced: NEVER returns SVG. Returns an authentic editorial photo URL.
  * Maintained for backwards compatibility across existing callers.
+ * Strictly NO SVG or external stock photos.
  */
-export function createEditorialFallbackSvg(category: string = "Notícia", title?: string): string {
-  return getEditorialFallbackPhoto(category, title);
+export function createEditorialFallbackSvg(_category: string = "Notícia", _title?: string): string {
+  return "";
 }
 
 /**
- * Checks if a string is a valid external or API image URL.
- * Rejects technical assets and SVGs.
+ * Checks if a string is a valid news image URL.
+ * Rejects Unsplash, third-party stock APIs, tracking pixels, and SVGs.
  */
 export function isValidApiImageUrl(url?: string | null): boolean {
   if (!url || typeof url !== "string") return false;
@@ -77,12 +31,17 @@ export function isValidApiImageUrl(url?: string | null): boolean {
   if (!trimmed) return false;
 
   const lower = trimmed.toLowerCase();
+  // STRICT RULE: Reject Unsplash and any external stock photo API
+  if (lower.includes("unsplash.com") || lower.includes("stockphoto") || lower.includes("shutterstock") || lower.includes("gettyimages")) {
+    return false;
+  }
+
   // Reject SVGs and data URI SVGs
   if (lower.startsWith("data:image/svg") || lower.endsWith(".svg") || lower.includes(".svg?")) {
     return false;
   }
 
-  // Reject local technical assets
+  // Reject local technical assets and tracking pixels
   if (
     trimmed.includes("logo.jpg") ||
     trimmed.includes("favicon") ||
@@ -99,7 +58,12 @@ export function isValidApiImageUrl(url?: string | null): boolean {
     return false;
   }
 
-  return trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("//");
+  return (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("//") ||
+    trimmed.startsWith("data:image/")
+  );
 }
 
 /**
@@ -124,16 +88,16 @@ export function normalizeImageUrl(url?: string | null): string {
 
 /**
  * Transforms an image URL to a clean directly-fetchable or proxied URL.
- * NEVER returns an SVG data URI!
+ * Strictly returns authentic URL or empty string. NO Unsplash or external fallbacks!
  */
-export function toOptimizedImage(url?: string | null, category: string = "Notícia", title?: string): string {
+export function toOptimizedImage(url?: string | null, _category: string = "Notícia", _title?: string): string {
   if (!url || typeof url !== "string") {
-    return getEditorialFallbackPhoto(category, title);
+    return "";
   }
 
   const trimmed = url.trim();
   if (!trimmed || !isValidApiImageUrl(trimmed)) {
-    return getEditorialFallbackPhoto(category, title);
+    return "";
   }
 
   // If already relative root or proxy
@@ -152,13 +116,14 @@ export function toOptimizedImage(url?: string | null, category: string = "Notíc
 export const getProxyImageUrl = toOptimizedImage;
 
 /**
- * Helper to extract all images from an HTML string (src, data-src, data-lazy-src, data-original, srcset, markdown, direct image links)
+ * Helper to extract all images across diverse formats (.jpg, .jpeg, .png, .webp, .avif, .gif, .bmp, .tiff, .jfif, .heic)
+ * from HTML strings, attributes, unquoted tags, srcset, escaped HTML, markdown, and inline CSS.
  */
 function extractImagesFromHtml(html: string, addCandidate: (url: string) => void) {
   if (!html || typeof html !== "string") return;
 
-  // 1. Match <img ...> with src, data-src, data-original, data-lazy-src
-  const imgTagRegex = /<img[^>]+(?:src|data-src|data-original|data-lazy-src)=["']([^"']+)["']/gi;
+  // 1. Match <img ...> with any image attribute
+  const imgTagRegex = /<img[^>]+(?:src|data-src|data-original|data-lazy-src|data-hi-res-src|data-actualsrc|data-default-src|data-url|data-fallback)=["']([^"']+)["']/gi;
   let m;
   while ((m = imgTagRegex.exec(html)) !== null) {
     if (m[1]) addCandidate(m[1]);
@@ -170,8 +135,8 @@ function extractImagesFromHtml(html: string, addCandidate: (url: string) => void
     if (m[1]) addCandidate(m[1]);
   }
 
-  // 3. Match srcset
-  const srcsetRegex = /srcset=["']([^"']+)["']/gi;
+  // 3. Match srcset or data-srcset
+  const srcsetRegex = /(?:srcset|data-srcset)=["']([^"']+)["']/gi;
   while ((m = srcsetRegex.exec(html)) !== null) {
     const parts = m[1].split(",");
     for (const part of parts) {
@@ -180,15 +145,33 @@ function extractImagesFromHtml(html: string, addCandidate: (url: string) => void
     }
   }
 
-  // 4. Match markdown images ![alt](url)
+  // 4. Match HTML-escaped image tags (&lt;img ... src=&quot;...&quot;)
+  const escapedRegex = /&lt;img[^&]+(?:src|data-src)=&quot;([^&]+)&quot;/gi;
+  while ((m = escapedRegex.exec(html)) !== null) {
+    if (m[1]) addCandidate(m[1]);
+  }
+
+  // 5. Match markdown images ![alt](url)
   const mdRegex = /!\[.*?\]\((https?:\/\/[^\s\)]+)\)/gi;
   while ((m = mdRegex.exec(html)) !== null) {
     if (m[1]) addCandidate(m[1]);
   }
 
-  // 5. Match direct image URLs in text (.webp, .jpg, .jpeg, .png, .avif)
-  const directUrlRegex = /(https?:\/\/[^\s"'<>]+\.(?:webp|jpe?g|png|avif)(?:\?[^\s"'<>]*)?)/gi;
+  // 6. Match CSS background-image
+  const cssRegex = /url\(["']?(https?:\/\/[^\)"']+)["']?\)/gi;
+  while ((m = cssRegex.exec(html)) !== null) {
+    if (m[1]) addCandidate(m[1]);
+  }
+
+  // 7. Match direct image URLs across diverse formats in text
+  const directUrlRegex = /(https?:\/\/[^\s"'<>]+\.(?:jpe?g|png|webp|avif|gif|bmp|tiff|jfif|heic)(?:\?[^\s"'<>]*)?)/gi;
   while ((m = directUrlRegex.exec(html)) !== null) {
+    if (m[1]) addCandidate(m[1]);
+  }
+
+  // 8. Match CDN media patterns (e.g., Globo s2-g1.glbimg.com)
+  const cdnRegex = /(https?:\/\/s2-[a-z0-9]+\.glbimg\.com\/[^\s"'<>]+)/gi;
+  while ((m = cdnRegex.exec(html)) !== null) {
     if (m[1]) addCandidate(m[1]);
   }
 }
@@ -204,7 +187,11 @@ export function extractAllItemImages(item?: Partial<NewsItem> | null): string[] 
   const addCandidate = (raw?: string | null) => {
     if (!raw || typeof raw !== "string") return;
     let candidate = raw.trim();
+    if (candidate.startsWith("&quot;") || candidate.endsWith("&quot;")) candidate = candidate.replace(/^&quot;|&quot;$/g, "");
+    if (candidate.startsWith("&#39;") || candidate.endsWith("&#39;")) candidate = candidate.replace(/^&#39;|&#39;$/g, "");
     if (candidate.startsWith("//")) candidate = "https:" + candidate;
+    candidate = candidate.replace(/&amp;/g, "&");
+
     if (!isValidApiImageUrl(candidate)) return;
 
     const norm = normalizeImageUrl(candidate);
@@ -214,35 +201,57 @@ export function extractAllItemImages(item?: Partial<NewsItem> | null): string[] 
     }
   };
 
-  // 1. Content HTML (first priority: journalist's embedded article photos)
-  if (item.content) {
-    extractImagesFromHtml(item.content, addCandidate);
-  }
-
-  // 2. Direct fields from API/RSS
+  // 1. Direct fields from API/RSS
   addCandidate(item.thumbnail);
   addCandidate(item.imageUrl);
   addCandidate(item.image);
   addCandidate((item as any)?.mediaUrl);
+  addCandidate((item as any)?.photo);
+  addCandidate((item as any)?.cover);
 
-  // 3. Enclosure
+  // 2. Enclosure
   const enc = (item as any)?.enclosure;
   if (enc) {
     if (typeof enc === "string") addCandidate(enc);
     else if (typeof enc === "object" && enc.url) addCandidate(enc.url);
   }
 
-  // 4. Description HTML
+  // 3. Media namespaces
+  const mediaContent = (item as any)?.["media:content"];
+  if (mediaContent) {
+    if (typeof mediaContent === "string") addCandidate(mediaContent);
+    else if (typeof mediaContent === "object" && mediaContent.url) addCandidate(mediaContent.url);
+  }
+  const mediaThumb = (item as any)?.["media:thumbnail"];
+  if (mediaThumb) {
+    if (typeof mediaThumb === "string") addCandidate(mediaThumb);
+    else if (typeof mediaThumb === "object" && mediaThumb.url) addCandidate(mediaThumb.url);
+  }
+
+  // 4. Content HTML & Body (journalist's embedded article photos)
+  if (item.content) {
+    extractImagesFromHtml(item.content, addCandidate);
+  }
+
+  // 5. Description HTML
   if (item.description) {
     extractImagesFromHtml(item.description, addCandidate);
+  }
+
+  // 6. Encoded content or summary
+  if ((item as any)?.["content:encoded"]) {
+    extractImagesFromHtml((item as any)["content:encoded"], addCandidate);
+  }
+  if ((item as any)?.summary) {
+    extractImagesFromHtml((item as any).summary, addCandidate);
   }
 
   return found;
 }
 
 /**
- * Extracts the featured image, candidate chain, and secondary images from the post.
- * Implements ANY image from the news content without SVG fallback.
+ * Extracts the featured image, candidate chain (1st, 2nd, etc.), and secondary images from the post.
+ * Strictly uses images from that article's content — NEVER Unsplash or external API fallbacks!
  */
 export function extractPostImages(item: Partial<NewsItem>): {
   featuredImage: string;
@@ -255,20 +264,20 @@ export function extractPostImages(item: Partial<NewsItem>): {
     .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
     .trim();
 
-  // Extract all authentic images from content and metadata
+  // Extract all authentic images from the article content and metadata
   const images = extractAllItemImages(item);
 
-  // If no images could be found in the article, fallback to a real journalistic photograph (NEVER SVG!)
+  // If no images exist in the article content, return empty (STRICT: NO UNSPLASH, NO EXTERNAL FALLBACK)
   if (images.length === 0) {
-    const photoFallback = getEditorialFallbackPhoto(item.category, item.id || item.title);
     return {
-      featuredImage: photoFallback,
-      candidates: [photoFallback],
+      featuredImage: "",
+      candidates: [],
       otherImages: [],
       verifiedAlt: cleanTitle,
     };
   }
 
+  // The 1st image is the primary featured image, 2nd is available in candidates[1]
   const featuredImage = images[0];
   const candidates = images;
   const otherImages = images.slice(1);
@@ -283,7 +292,7 @@ export function extractPostImages(item: Partial<NewsItem>): {
 
 /**
  * Extracts a featured image from any available field or content in the news item.
- * NEVER returns an SVG data URI!
+ * Strictly returns authentic content image or empty string.
  */
 export function getPostThumbnail(item: Partial<NewsItem>): string {
   const { featuredImage } = extractPostImages(item);

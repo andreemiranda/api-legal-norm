@@ -1,10 +1,10 @@
-import { extractPostImages, getEditorialFallbackPhoto } from "./imageOptimizer";
+import { extractPostImages } from "./imageOptimizer";
 import { NewsItem } from "../types";
 
 /**
  * Extracts a thumbnail image URL for a news item.
  * Strictly extracts authentic images from content or item fields.
- * NEVER returns an SVG data URI!
+ * NEVER returns Unsplash, SVG, or third-party fallback photos!
  */
 export function extractThumbnail(item: {
   thumbnail?: string;
@@ -18,9 +18,9 @@ export function extractThumbnail(item: {
   id?: string | number;
 }): string {
   if (!item) {
-    return getEditorialFallbackPhoto();
+    return "";
   }
 
   const { featuredImage } = extractPostImages(item as Partial<NewsItem>);
-  return featuredImage;
+  return featuredImage || "";
 }

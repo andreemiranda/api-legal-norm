@@ -14,6 +14,7 @@ export interface NewsApiMediaEndpoint {
   id: number;
   endpoint: string;
   site: string;
+  category?: string;
 }
 
 function getEnv(key: string, fallback: string = ""): string {
@@ -126,9 +127,13 @@ export const NEWS_SOURCE_ENDPOINTS: NewsApiSourceEndpoint[] = [
   { index: 70, id: 863534413172943, endpoint: "/api/news/863534413172943", category: "Educação", originalSite: "g1.globo.com" },
   { index: 71, id: 411718493791472, endpoint: "/api/news/411718493791472", category: "Economia", originalSite: "g1.globo.com" },
   { index: 72, id: 123961798934467, endpoint: "/api/news/123961798934467", category: "Autoesporte", originalSite: "g1.globo.com" },
+  { index: 73, id: 528374619283746, endpoint: "/api/news/528374619283746", category: "Justiça", originalSite: "normajuridica.com" },
+  { index: 74, id: 194728365019283, endpoint: "/api/news/194728365019283", category: "Justiça", originalSite: "normajuridica.com" },
+  { index: 75, id: 736482910573649, endpoint: "/api/news/736482910573649", category: "Justiça", originalSite: "normajuridica.com" },
+  { index: 76, id: 813947265038471, endpoint: "/api/news/813947265038471", category: "Justiça", originalSite: "normajuridica.com" },
 ];
 
-// 27 Registered Media Endpoints (Synchronized with News Source IDs)
+// 31 Registered Media Endpoints (Synchronized with News Source IDs)
 export const NEWS_MEDIA_ENDPOINTS: NewsApiMediaEndpoint[] = [
   { index: 1, id: 383841537673882, endpoint: "/api/images/383841537673882", site: "https://api-news-media.netlify.app/api/images/383841537673882" },
   { index: 2, id: 893766336492326, endpoint: "/api/images/893766336492326", site: "https://api-news-media.netlify.app/api/images/893766336492326" },
@@ -157,6 +162,10 @@ export const NEWS_MEDIA_ENDPOINTS: NewsApiMediaEndpoint[] = [
   { index: 25, id: 172626478241883, endpoint: "/api/images/172626478241883", site: "https://api-news-media.netlify.app/api/images/172626478241883" },
   { index: 26, id: 151892189935957, endpoint: "/api/images/151892189935957", site: "https://api-news-media.netlify.app/api/images/151892189935957" },
   { index: 27, id: 432221191486213, endpoint: "/api/images/432221191486213", site: "https://api-news-media.netlify.app/api/images/432221191486213" },
+  { index: 28, id: 528374619283746, endpoint: "/api/news/528374619283746", site: "https://api-news-media.netlify.app/api/news/528374619283746", category: "Justiça" },
+  { index: 29, id: 194728365019283, endpoint: "/api/news/194728365019283", site: "https://api-news-media.netlify.app/api/news/194728365019283", category: "Justiça" },
+  { index: 30, id: 736482910573649, endpoint: "/api/news/736482910573649", site: "https://api-news-media.netlify.app/api/news/736482910573649", category: "Justiça" },
+  { index: 31, id: 813947265038471, endpoint: "/api/news/813947265038471", site: "https://api-news-media.netlify.app/api/news/813947265038471", category: "Justiça" },
 ];
 
 export function buildUpstreamUrl(path: string, params?: Record<string, string | number>): string {
