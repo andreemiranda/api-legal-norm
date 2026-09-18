@@ -253,6 +253,11 @@ function MainPortal() {
   // Handler to navigate between pages
   const handleNavigate = (view: string) => {
     setCurrentView(view);
+    if (view === "home") {
+      handleRotateFeed();
+      handleRotateNextCarousel();
+      handleRotateNextRadar();
+    }
     window.history.pushState({ view }, "", view === "home" ? "/" : `/${view}`);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -312,12 +317,20 @@ function MainPortal() {
           if (post) setSelectedPost(post);
         } else if (state.view === "home" && state.category) {
           setSelectedCategory(state.category);
+          if (state.category === "Todas") {
+            handleRotateFeed();
+            handleRotateNextCarousel();
+            handleRotateNextRadar();
+          }
         }
       } else {
         const path = window.location.pathname;
         if (path === "/" || path === "") {
           setCurrentView("home");
           setSelectedCategory("Todas");
+          handleRotateFeed();
+          handleRotateNextCarousel();
+          handleRotateNextRadar();
         } else if (path.startsWith("/categoria/")) {
           const rawSlug = path.replace("/categoria/", "").trim();
           const matched = categories.find((c) => matchCategories(c.category, rawSlug));

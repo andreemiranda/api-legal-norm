@@ -30,19 +30,29 @@ function normalize(str: string): string {
  * Builds an interleaved, category-balanced rotating feed for "Todas as Notícias".
  * Ensures every category rotates across pages (each page has a diverse blend of categories),
  * with all categories having an equal opportunity to appear on Page 1 upon page load,
- * category switch, or refresh, and each individual page/category is sorted strictly
+ * category switch, or refresh, and items within each category are sorted strictly
  * from newest to oldest.
  */
 export function buildBalancedRotatingFeed(
   allNews: NewsItem[],
   seed?: number,
-  pageSize = 12
+  _pageSize = 12
 ): NewsItem[] {
   if (!allNews || allNews.length === 0) return [];
 
+  // Deduplicate items to ensure no repetitions
+  const seen = new Set<string>();
+  const uniqueNews: NewsItem[] = [];
+  for (const item of allNews) {
+    const key = String(item.id || item.slug || item.title).trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    uniqueNews.push(item);
+  }
+
   // Group all items by category
   const grouped: Record<string, NewsItem[]> = {};
-  for (const item of allNews) {
+  for (const item of uniqueNews) {
     const cat = item.category?.trim() || "Notícias Gerais";
     if (!grouped[cat]) grouped[cat] = [];
     grouped[cat].push(item);
@@ -55,6 +65,8 @@ export function buildBalancedRotatingFeed(
 
   // Randomly shuffle the category sequence based on the seed
   const categories = Object.keys(grouped);
+  if (categories.length === 0) return [];
+
   const shuffledCategories = shuffleArray(categories, seed);
 
   // Category pointers for round-robin interleaving
@@ -64,30 +76,20 @@ export function buildBalancedRotatingFeed(
   }
 
   const result: NewsItem[] = [];
-  const totalItems = allNews.length;
+  let hasMore = true;
 
-  // Fill page by page: each page of `pageSize` items receives items from different categories
-  while (result.length < totalItems) {
-    const pageItems: NewsItem[] = [];
-    let addedInRound = true;
-
-    while (pageItems.length < pageSize && addedInRound) {
-      addedInRound = false;
-      for (const cat of shuffledCategories) {
-        if (pointers[cat] < grouped[cat].length) {
-          pageItems.push(grouped[cat][pointers[cat]]);
-          pointers[cat]++;
-          addedInRound = true;
-          if (pageItems.length >= pageSize) break;
-        }
+  // Interleave categories round-robin so the sequential order of categories
+  // is visibly altered across rotations, ensuring all categories are represented
+  // on the front pages of the feed
+  while (hasMore) {
+    hasMore = false;
+    for (const cat of shuffledCategories) {
+      if (pointers[cat] < grouped[cat].length) {
+        result.push(grouped[cat][pointers[cat]]);
+        pointers[cat]++;
+        hasMore = true;
       }
     }
-
-    if (pageItems.length === 0) break;
-
-    // Strict chronological ordering within each page (newest to oldest)
-    pageItems.sort((a, b) => getNewsTimestamp(b) - getNewsTimestamp(a));
-    result.push(...pageItems);
   }
 
   return result;
@@ -105,10 +107,10 @@ export function buildCategoryFeed(
   const normTarget = normalize(categoryName);
   const isAll = !categoryName || normTarget === "todas" || normTarget === "all";
 
-  // Se for "Todas", retorna todas as notícias estritamente em ordem cronológica
+  // Se for "Todas", retorna todas as notícias no feed rotativo balanceado por categorias
   if (isAll) {
-    const sortedNews = [...allAvailableNews].sort((a, b) => getNewsTimestamp(b) - getNewsTimestamp(a));
-    const taggedItems = sortedNews.map((item) => ({
+    const rotatingNews = buildBalancedRotatingFeed(allAvailableNews, rotationSeed);
+    const taggedItems = rotatingNews.map((item) => ({
       ...item,
       tags: item.tags && item.tags.length > 0 ? item.tags : extractTagsForNewsItem(item),
     }));

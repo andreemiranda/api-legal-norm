@@ -109,12 +109,47 @@ export function getRadarEditorialNews(
     };
   }
 
-  const sorted = sortNewsChronological(allNews).slice(0, limit);
+  // When "Todas": Rotates to a distinct category on every rotation turn
+  const categories = getAvailableCategories(allNews);
+  if (categories.length === 0) {
+    const sorted = sortNewsChronological(allNews).slice(0, limit);
+    return {
+      items: sorted,
+      featuredCategory: "Geral",
+      isFiltered: false,
+      totalCategoryArticles: sorted.length,
+    };
+  }
+
+  const shuffledCats = shuffleArray(categories, rotationSeed);
+  const targetCategory = shuffledCats[0];
+  const targetNews = sortNewsChronological(
+    allNews.filter((n) => n.category?.toLowerCase() === targetCategory.toLowerCase())
+  );
+
+  const items = [...targetNews.slice(0, limit)];
+  if (items.length < limit) {
+    const seenIds = new Set(items.map((i) => i.id));
+    for (let c = 1; c < shuffledCats.length && items.length < limit; c++) {
+      const nextCat = shuffledCats[c];
+      const nextNews = sortNewsChronological(
+        allNews.filter((n) => n.category?.toLowerCase() === nextCat.toLowerCase())
+      );
+      for (const item of nextNews) {
+        if (!seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          items.push(item);
+          if (items.length >= limit) break;
+        }
+      }
+    }
+  }
+
   return {
-    items: sorted,
-    featuredCategory: "Geral",
+    items,
+    featuredCategory: targetCategory,
     isFiltered: false,
-    totalCategoryArticles: sorted.length,
+    totalCategoryArticles: targetNews.length || items.length,
   };
 }
 
@@ -136,12 +171,47 @@ export function getCarouselNews(
     };
   }
 
-  const sorted = sortNewsChronological(allNews).slice(0, limit);
+  // When "Todas": Rotates to a distinct category focus on every rotation turn
+  const categories = getAvailableCategories(allNews);
+  if (categories.length === 0) {
+    const sorted = sortNewsChronological(allNews).slice(0, limit);
+    return {
+      items: sorted,
+      featuredCategory: "Geral",
+      isFiltered: false,
+      totalCategoryArticles: sorted.length,
+    };
+  }
+
+  const shuffledCats = shuffleArray(categories, rotationSeed);
+  const targetCategory = shuffledCats[0];
+  const targetNews = sortNewsChronological(
+    allNews.filter((n) => n.category?.toLowerCase() === targetCategory.toLowerCase())
+  );
+
+  const items = [...targetNews.slice(0, limit)];
+  if (items.length < limit) {
+    const seenIds = new Set(items.map((i) => i.id));
+    for (let c = 1; c < shuffledCats.length && items.length < limit; c++) {
+      const nextCat = shuffledCats[c];
+      const nextNews = sortNewsChronological(
+        allNews.filter((n) => n.category?.toLowerCase() === nextCat.toLowerCase())
+      );
+      for (const item of nextNews) {
+        if (!seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          items.push(item);
+          if (items.length >= limit) break;
+        }
+      }
+    }
+  }
+
   return {
-    items: sorted,
-    featuredCategory: "Geral",
+    items,
+    featuredCategory: targetCategory,
     isFiltered: false,
-    totalCategoryArticles: sorted.length,
+    totalCategoryArticles: targetNews.length || items.length,
   };
 }
 
@@ -163,11 +233,40 @@ export function getSidebarNews(
     };
   }
 
-  const sorted = sortNewsChronological(allNews).slice(0, limit);
+  // When "Todas": Interleave 1 top recent item from each rotated category
+  const categories = getAvailableCategories(allNews);
+  if (categories.length === 0) {
+    const sorted = sortNewsChronological(allNews).slice(0, limit);
+    return {
+      items: sorted,
+      featuredCategory: "Em Rotação",
+      isFiltered: false,
+      totalCategoryArticles: sorted.length,
+    };
+  }
+
+  const shuffledCats = shuffleArray(categories, rotationSeed);
+  const items: NewsItem[] = [];
+  const seenIds = new Set<any>();
+
+  for (const cat of shuffledCats) {
+    const catNews = sortNewsChronological(
+      allNews.filter((n) => n.category?.toLowerCase() === cat.toLowerCase())
+    );
+    for (const item of catNews) {
+      if (!seenIds.has(item.id)) {
+        seenIds.add(item.id);
+        items.push(item);
+        break; // 1 item per category
+      }
+    }
+    if (items.length >= limit) break;
+  }
+
   return {
-    items: sorted,
-    featuredCategory: "Geral",
+    items,
+    featuredCategory: "Em Rotação",
     isFiltered: false,
-    totalCategoryArticles: sorted.length,
+    totalCategoryArticles: items.length,
   };
 }
