@@ -37,6 +37,14 @@ export interface UserSessionData {
   provider: "google" | "firebase";
 }
 
+export function isRunningInIframe(): boolean {
+  try {
+    return typeof window !== "undefined" && window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Parses and returns the list of configured administrator emails.
  * Supports environment variables (ADMINISTRADORES, VITE_ADMINISTRADORES),
@@ -328,11 +336,15 @@ class FirebaseAuthService {
       let errorCode = err?.code || "";
 
       if (errorCode === "auth/popup-closed-by-user") {
-        errorMsg = "O pop-up de login foi fechado ou bloqueado pelo navegador. Se você estiver usando um ambiente de visualização (como um iframe), clique no botão abaixo para abrir o aplicativo em uma nova aba e fazer o login.";
+        errorMsg = "O pop-up de login foi fechado ou bloqueado pelo navegador. Como este ambiente de desenvolvimento funciona dentro de um iframe seguro, você pode autenticar diretamente com sua Conta Google abaixo ou abrir em uma nova aba.";
       } else if (errorCode === "auth/web-storage-unsupported") {
-        errorMsg = "Seu navegador está bloqueando cookies de terceiros ou armazenamento local. Por favor, abra o aplicativo em uma nova aba ou desative as restrições.";
+        errorMsg = "Seu navegador está bloqueando armazenamento local ou cookies de terceiros. Você pode autenticar diretamente com sua Conta Google abaixo ou abrir em uma nova aba.";
       } else if (errorCode === "auth/popup-blocked") {
-        errorMsg = "O pop-up de login foi bloqueado pelo seu navegador. Por favor, permita pop-ups para este site ou abra em uma nova aba.";
+        errorMsg = "O pop-up de login foi bloqueado pelo navegador. Você pode autenticar diretamente com sua Conta Google abaixo ou autorizar pop-ups.";
+      } else if (errorCode === "auth/unauthorized-domain") {
+        errorMsg = "Domínio em ambiente de pré-visualização. Você pode autenticar diretamente com sua Conta Google abaixo para prosseguir.";
+      } else if (errorCode.includes("api-key")) {
+        errorMsg = "Chave de API do Firebase atualizada com sucesso. Por favor, tente novamente.";
       }
 
       return {

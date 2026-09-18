@@ -20,18 +20,27 @@ export interface FirebaseInstanceConfig {
 function getEnv(key: string, backupKey?: string, fallback: string = ""): string {
   try {
     const meta = (import.meta as any).env || {};
-    if (meta[key]) return meta[key];
-    if (backupKey && meta[backupKey]) return meta[backupKey];
+    const val = meta[key] || (backupKey && meta[backupKey]) || meta[key.replace(/^(VITE_|NEXT_PUBLIC_)/, "")];
+    if (val && typeof val === "string" && val.trim() && val !== "YOUR_FIREBASE_API_KEY") {
+      return val.trim();
+    }
   } catch {}
   return fallback;
 }
 
-// Check saved custom credentials in localStorage
+// Check saved custom credentials in localStorage, ignoring invalid placeholder keys
 function getSavedConfig(key: string): FirebaseInstanceConfig | null {
   try {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem(key);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.apiKey === "YOUR_FIREBASE_API_KEY") {
+          localStorage.removeItem(key);
+          return null;
+        }
+        return parsed;
+      }
     }
   } catch {}
   return null;
@@ -42,7 +51,7 @@ const savedMirror = getSavedConfig("nj_firebase_mirror");
 
 // 1. Primary Firebase Project Config (legal-norm2)
 export const primaryConfig: FirebaseInstanceConfig = {
-  apiKey: savedPrimary?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_API_KEY", "VITE_FIREBASE_API_KEY", "YOUR_FIREBASE_API_KEY"),
+  apiKey: savedPrimary?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_API_KEY", "VITE_FIREBASE_API_KEY", "AIzaSyCAQ6UdqNC3_spKkjH79Rf7s9SwBMN98Fw"),
   authDomain: savedPrimary?.authDomain || getEnv("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN", "VITE_FIREBASE_AUTH_DOMAIN", "legal-norm2.firebaseapp.com"),
   databaseURL: savedPrimary?.databaseURL || getEnv("NEXT_PUBLIC_FIREBASE_DATABASE_URL", "VITE_FIREBASE_DATABASE_URL", "https://legal-norm2-default-rtdb.firebaseio.com"),
   projectId: savedPrimary?.projectId || getEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "VITE_FIREBASE_PROJECT_ID", "legal-norm2"),
@@ -53,7 +62,7 @@ export const primaryConfig: FirebaseInstanceConfig = {
 
 // 2. Secondary / Mirror Firebase Project Config (legal-norm3)
 export const mirrorConfig: FirebaseInstanceConfig = {
-  apiKey: savedMirror?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_2_API_KEY", "VITE_FIREBASE_2_API_KEY", "YOUR_FIREBASE_API_KEY"),
+  apiKey: savedMirror?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_2_API_KEY", "VITE_FIREBASE_2_API_KEY", "AIzaSyBgpGn4rTTZET8DaT9wJL0zmwcYv_9x6gs"),
   authDomain: savedMirror?.authDomain || getEnv("NEXT_PUBLIC_FIREBASE_2_AUTH_DOMAIN", "VITE_FIREBASE_2_AUTH_DOMAIN", "legal-norm3.firebaseapp.com"),
   databaseURL: savedMirror?.databaseURL || getEnv("NEXT_PUBLIC_FIREBASE_2_DATABASE_URL", "VITE_FIREBASE_2_DATABASE_URL", "https://legal-norm3-default-rtdb.firebaseio.com"),
   projectId: savedMirror?.projectId || getEnv("NEXT_PUBLIC_FIREBASE_2_PROJECT_ID", "VITE_FIREBASE_2_PROJECT_ID", "legal-norm3"),
@@ -63,7 +72,9 @@ export const mirrorConfig: FirebaseInstanceConfig = {
 };
 
 export function isConfigValid(cfg: FirebaseInstanceConfig): boolean {
-  return Boolean(cfg && cfg.apiKey && (cfg.databaseURL || cfg.projectId));
+  if (!cfg || !cfg.apiKey) return false;
+  if (cfg.apiKey === "YOUR_FIREBASE_API_KEY" || !cfg.apiKey.startsWith("AIzaSy")) return false;
+  return Boolean(cfg.databaseURL || cfg.projectId);
 }
 
 // Singleton instances

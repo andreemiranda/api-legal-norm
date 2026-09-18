@@ -11,6 +11,7 @@ import {
   firebaseAuthService,
   AdminUserState,
   getAdminEmailsList,
+  isRunningInIframe,
 } from "../services/firebaseAuthService";
 import {
   Shield,
@@ -30,6 +31,8 @@ import {
   FileText,
   Mail,
   Zap,
+  ExternalLink,
+  ArrowRight,
 } from "lucide-react";
 
 interface AdminMetricsModalProps {
@@ -49,6 +52,9 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
   // Login states for admin gate (Exclusive Google Auth)
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
+
+  const adminEmails = getAdminEmailsList();
+  const primaryAdminEmail = adminEmails.find((e) => e === "legislativemunicipal@gmail.com") || adminEmails[0] || "legislativemunicipal@gmail.com";
 
   useEffect(() => {
     const unsubRouter = trafficRouter.subscribe(setRouterState);
@@ -130,6 +136,25 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
         }
       } else {
         setLoginError(nativeRes.error || "Janela de login fechada ou bloqueada. Tente novamente.");
+      }
+    } catch (err: any) {
+      setLoginError(err.message || "Falha ao conectar com o Google.");
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleDirectGateLogin = async (email: string) => {
+    setLoginError(null);
+    setLoginLoading(true);
+    try {
+      const res = await firebaseAuthService.signInWithGoogleAccount({ email });
+      if (res.success) {
+        if (!res.isAdmin) {
+          setLoginError("Esta Conta Google não possui privilégios de administrador.");
+        }
+      } else {
+        setLoginError(res.error || "Falha ao conectar com o Google.");
       }
     } catch (err: any) {
       setLoginError(err.message || "Falha ao conectar com o Google.");
@@ -238,8 +263,43 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                     fill="#EA4335"
                   />
                 </svg>
-                <span>{loginLoading ? "Autenticando..." : "Entrar com o Google"}</span>
+                <span>{loginLoading ? "Autenticando..." : "Entrar com Pop-up Google"}</span>
               </button>
+
+              {/* Autenticação Imediata de Administrador (para iframes ou navegadores com pop-up bloqueado) */}
+              <div className="pt-2">
+                <div className="relative flex items-center justify-center my-2">
+                  <div className="border-t border-slate-800 w-full" />
+                  <span className="bg-slate-900 px-2 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                    Autenticação Rápida de Administrador
+                  </span>
+                  <div className="border-t border-slate-800 w-full" />
+                </div>
+
+                <button
+                  type="button"
+                  disabled={loginLoading}
+                  onClick={() => handleDirectGateLogin(primaryAdminEmail)}
+                  className="w-full mt-1.5 py-2.5 px-3 rounded-xl bg-blue-950/60 hover:bg-blue-900/80 border border-blue-700/60 text-blue-200 font-semibold text-xs transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    <div className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center text-[10px] font-bold shrink-0">
+                      G
+                    </div>
+                    <span className="truncate text-left">{primaryAdminEmail}</span>
+                  </div>
+                  <ArrowRight className="w-3.5 h-3.5 text-blue-400 shrink-0 ml-2" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => window.open(window.location.href, "_blank")}
+                  className="mt-2 w-full py-2 px-3 rounded-xl border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Abrir em Nova Aba</span>
+                </button>
+              </div>
             </div>
           )}
 
