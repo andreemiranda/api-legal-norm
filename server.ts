@@ -11,6 +11,7 @@ import dotenv from "dotenv";
 import { buildCategoryFeed } from "./src/utils/categoryFeedManager";
 import { extractTagsForNewsItem, computeTagCounts } from "./src/utils/tagEngine";
 import { verifyNewsImage, resolveAuthenticNewsImage } from "./src/utils/imageVerification";
+import { resolveNewsMedia, initMediaCatalog } from "./src/utils/newsMediaResolver";
 
 // Automatically load .env
 if (fs.existsSync(path.join(process.cwd(), ".env"))) {
@@ -311,6 +312,9 @@ try {
   console.error("Error loading initial data files:", err);
 }
 
+// Inicializa catálogo de imagens pré-indexado
+initMediaCatalog();
+
 // Firebase Realtime Database and Sobrescrição Engine (~2.8 GB Storage & ~29.4 GB Traffic across 3 instances)
 const RTDB_PRIMARY = "https://legal-norm2-default-rtdb.firebaseio.com/news.json";
 const RTDB_MIRROR = "https://legal-norm3-default-rtdb.firebaseio.com/news.json";
@@ -369,10 +373,11 @@ function processAndApplySobrescricao(rawNews: any[]) {
         content: cleanContent,
       };
 
-      // Extract any authentic image from content and fields (never wipe out to "")
-      const resolved = resolveAuthenticNewsImage(itemWithCleanText);
-      const verifiedImgUrl = resolved.verifiedImage || "";
-      const verifiedAlt = resolved.verifiedAlt || decodedTitle;
+      // Extract authentic images from content, fields and media catalog (guaranteeing at least 1 image, non-repeated)
+      const mediaResult = resolveNewsMedia(itemWithCleanText);
+      const verifiedImgUrl = mediaResult.primaryImage;
+      const verifiedAlt = mediaResult.verifiedAlt || decodedTitle;
+      const distinctImages = mediaResult.images;
 
       return {
         ...item,
@@ -382,6 +387,7 @@ function processAndApplySobrescricao(rawNews: any[]) {
         thumbnail: verifiedImgUrl,
         imageUrl: verifiedImgUrl,
         image: verifiedImgUrl,
+        images: distinctImages,
         imageAlt: verifiedAlt,
         slug: cleanSlug({ ...item, title: decodedTitle }),
         tags,
@@ -504,12 +510,81 @@ function loadInitialNewsCache() {
 // Carrega imediatamente no arranque
 loadInitialNewsCache();
 
+async function syncMediaCatalogFromUpstream() {
+  if (!Array.isArray(mediaChannelsData) || mediaChannelsData.length === 0) return;
+  try {
+    const fetchedMedia: any[] = [];
+    const chunkSize = 5;
+    for (let i = 0; i < mediaChannelsData.length; i += chunkSize) {
+      const slice = mediaChannelsData.slice(i, i + chunkSize);
+      const results = await Promise.allSettled(
+        slice.map(async (ch: any) => {
+          const url = `${NEWS_API_BASE_URL}/api/images/${ch.id}?api_key=${NEWS_API_KEY}&limit=100`;
+          try {
+            const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+            if (res.ok) {
+              const data = await res.json();
+              if (Array.isArray(data)) {
+                return data.map((item: any) => {
+                  let img = item.imageUrl || item.source_url || item.guid?.rendered || item.link;
+                  if (item.media_details?.sizes?.large?.source_url) {
+                    img = item.media_details.sizes.large.source_url;
+                  } else if (item.media_details?.sizes?.full?.source_url) {
+                    img = item.media_details.sizes.full.source_url;
+                  }
+                  return {
+                    id: item.id,
+                    title: item.title?.rendered || item.title || "",
+                    link: item.link || "",
+                    imageUrl: img,
+                    sourceId: ch.id,
+                    category: ch.category,
+                    site: ch.site,
+                    raw: item,
+                  };
+                }).filter((x: any) => x.imageUrl && typeof x.imageUrl === "string");
+              }
+            }
+          } catch {}
+          return [];
+        })
+      );
+      for (const r of results) {
+        if (r.status === "fulfilled" && Array.isArray(r.value)) {
+          fetchedMedia.push(...r.value);
+        }
+      }
+    }
+
+    if (fetchedMedia.length > 0) {
+      const mediaCatalogPath = path.join(process.cwd(), "src", "data", "mediaCatalog.json");
+      let existing: any[] = [];
+      if (fs.existsSync(mediaCatalogPath)) {
+        try { existing = JSON.parse(fs.readFileSync(mediaCatalogPath, "utf-8")); } catch {}
+      }
+      const map = new Map<string, any>();
+      existing.forEach((x) => { if (x.imageUrl) map.set(x.imageUrl, x); });
+      fetchedMedia.forEach((x) => { if (x.imageUrl) map.set(x.imageUrl, x); });
+      const merged = Array.from(map.values());
+      initMediaCatalog(merged);
+      try {
+        fs.writeFileSync(mediaCatalogPath, JSON.stringify(merged));
+      } catch {}
+    }
+  } catch (err: any) {
+    console.warn("[Media Catalog Sync] Aviso ao atualizar catálogo de imagens:", err?.message || err);
+  }
+}
+
 async function syncNewsFromUpstreamApi() {
   if (isUpstreamSyncing) return;
   isUpstreamSyncing = true;
   console.log(`[Upstream News API] Buscando notícias em tempo real direto da API com limit=100 (todas as matérias)...`);
 
   try {
+    // Sincroniza catálogo de imagens em paralelo
+    await syncMediaCatalogFromUpstream();
+
     const rawItems: any[] = [];
     const chunkSize = 5; // Concorrência balanceada para evitar erros 502/rate-limit
 

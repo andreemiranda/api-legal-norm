@@ -12,6 +12,8 @@ export interface NewsItem {
   thumbnail?: string;
   imageUrl?: string;
   image?: string;
+  images?: string[];
+  imageAlt?: string;
   mediaUrl?: string;
   slug?: string;
   tags?: string[];

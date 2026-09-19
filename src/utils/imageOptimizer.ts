@@ -31,8 +31,13 @@ export function isValidApiImageUrl(url?: string | null): boolean {
   if (!trimmed) return false;
 
   const lower = trimmed.toLowerCase();
-  // STRICT RULE: Reject Unsplash and any external stock photo API
-  if (lower.includes("unsplash.com") || lower.includes("stockphoto") || lower.includes("shutterstock") || lower.includes("gettyimages")) {
+  // STRICT RULE: Reject Unsplash and external stock photo domains
+  if (lower.includes("unsplash.com") || lower.includes("stockphoto.com") || lower.includes("shutterstock.com") || lower.includes("gettyimages.com")) {
+    return false;
+  }
+
+  // Reject non-image documents (PDFs, docs)
+  if (lower.endsWith(".pdf") || lower.includes(".pdf?") || lower.endsWith(".doc") || lower.endsWith(".docx")) {
     return false;
   }
 
@@ -205,6 +210,11 @@ export function extractAllItemImages(item?: Partial<NewsItem> | null): string[] 
   addCandidate(item.thumbnail);
   addCandidate(item.imageUrl);
   addCandidate(item.image);
+  if (Array.isArray(item.images)) {
+    for (const img of item.images) {
+      addCandidate(img);
+    }
+  }
   addCandidate((item as any)?.mediaUrl);
   addCandidate((item as any)?.photo);
   addCandidate((item as any)?.cover);

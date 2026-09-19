@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { NewsItem } from "../types";
-import { extractPostImages, processPostContent, getProxyImageUrl } from "../utils/imageOptimizer";
+import { extractPostImages, processPostContent, getProxyImageUrl, normalizeImageUrl } from "../utils/imageOptimizer";
 import { formatDatePtBR, calculateReadingTime, stripHtml } from "../utils/date";
 import { AdSenseBanner } from "../components/AdSenseBanner";
 import {
@@ -35,7 +35,7 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
   const headlineRef = useRef<HTMLDivElement>(null);
 
   // Extract all images and determine candidate chain
-  const { candidates } = useMemo(() => {
+  const { candidates, otherImages } = useMemo(() => {
     return extractPostImages(post);
   }, [post]);
   const [candidateIdx, setCandidateIdx] = useState(0);
@@ -52,6 +52,20 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
       setCandidateIdx((prev) => prev + 1);
     }
   };
+
+  // Additional non-repeated distinct images from the article
+  const additionalGalleryImages = useMemo(() => {
+    if (!otherImages || otherImages.length === 0) return [];
+    const normFeatured = normalizeImageUrl(currentFeaturedImage);
+    const contentNorm = (post.content || "").toLowerCase();
+
+    return otherImages.filter((img) => {
+      const norm = normalizeImageUrl(img);
+      if (!norm || norm === normFeatured) return false;
+      if (contentNorm.includes(norm)) return false;
+      return true;
+    });
+  }, [otherImages, currentFeaturedImage, post.content]);
 
   const readingTime = calculateReadingTime(post.content || post.description);
   const currentUrl = typeof window !== "undefined" ? window.location.href : "";
@@ -250,6 +264,30 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
           <p className="text-slate-200 text-base leading-relaxed text-justify">
             {stripHtml(cleanDescription)}
           </p>
+        )}
+
+        {/* Additional Distinct Images from Article (Guaranteed non-repeated) */}
+        {additionalGalleryImages.length > 0 && (
+          <div className="pt-6 border-t border-slate-800/80 space-y-4">
+            <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
+              Fotos da Matéria
+            </h3>
+            <div className={`grid gap-4 ${additionalGalleryImages.length === 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>
+              {additionalGalleryImages.map((imgUrl, i) => (
+                <div key={i} className="rounded-xl overflow-hidden border border-blue-900/30 bg-slate-950 shadow-md">
+                  <img
+                    src={imgUrl}
+                    alt={`${cleanTitle} - Imagem ${i + 2}`}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-56 sm:h-64 object-cover object-center hover:scale-105 transition-transform duration-300"
+                  />
+                  <div className="p-2 bg-slate-950 text-[11px] text-slate-400">
+                    Norma Jurídica • Registro visual {i + 1}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         {/* In-Article AdSense Banner Slot */}

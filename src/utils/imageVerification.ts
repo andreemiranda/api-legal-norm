@@ -373,6 +373,11 @@ export function resolveAuthenticNewsImage(newsItem: Partial<NewsItem>): {
   addCandidate(newsItem.thumbnail);
   addCandidate(newsItem.imageUrl);
   addCandidate(newsItem.image);
+  if (Array.isArray(newsItem.images)) {
+    for (const img of newsItem.images) {
+      addCandidate(img);
+    }
+  }
   addCandidate((newsItem as any)?.mediaUrl);
   addCandidate((newsItem as any)?.photo);
   addCandidate((newsItem as any)?.cover);
