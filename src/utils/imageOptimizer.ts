@@ -72,11 +72,14 @@ export function isValidApiImageUrl(url?: string | null): boolean {
 }
 
 /**
- * Normalizes URL for duplicate comparison
+ * Normalizes URL for duplicate comparison.
+ * Strips resize suffixes, query strings, protocol, CDN wrappers, and dimensions.
  */
 export function normalizeImageUrl(url?: string | null): string {
   if (!url || typeof url !== "string") return "";
   let clean = url.trim();
+
+  // Unwrap image proxy URLs
   try {
     if (clean.includes("/next_imagem?url=") || clean.includes("/next_image?url=")) {
       const parsed = new URL(clean, "http://localhost");
@@ -84,11 +87,61 @@ export function normalizeImageUrl(url?: string | null): string {
     }
   } catch {}
 
-  return clean
-    .split("?")[0]
-    .replace(/^https?:\/\//, "")
-    .replace(/\/+$/, "")
-    .toLowerCase();
+  // If URL contains an embedded full URL (common in CDNs like Globo s2-glbimg), extract the inner URL
+  const embeddedMatch = clean.match(/(?:https?%3A%2F%2F|https?:\/\/)([^"'<>\s?]+)/i);
+  if (embeddedMatch && embeddedMatch[1] && clean.indexOf(embeddedMatch[0]) > 10) {
+    clean = embeddedMatch[1];
+  }
+
+  // Strip query string and hashes
+  clean = clean.split("?")[0].split("#")[0];
+
+  // Strip protocol and trailing slashes
+  clean = clean.replace(/^https?:\/\//i, "").replace(/^\/\//, "").replace(/\/+$/, "").toLowerCase();
+
+  // Strip WordPress and media CMS resize dimensions:
+  // e.g. -1024x768, -768x512, -300x200, -150x150, _v2_900x506, -scaled, -scaled_1
+  clean = clean.replace(/(?:-\d+x\d+|_v\d+_\d+x\d+|-scaled(?:_\d+)?)(?=\.[a-z0-9]+$)/i, "");
+
+  return clean;
+}
+
+/**
+ * Extracts a unique semantic signature of an image filename or path.
+ * Used to detect if two image URLs point to the same asset under different subdomains or sizing prefixes.
+ */
+export function getImageFingerprint(url?: string | null): string {
+  if (!url || typeof url !== "string") return "";
+  const norm = normalizeImageUrl(url);
+  if (!norm) return "";
+
+  const parts = norm.split("/").filter(Boolean);
+  const filename = parts.pop() || "";
+  const nameWithoutExt = filename.replace(/\.[a-z0-9]+$/i, "");
+
+  if (nameWithoutExt.length >= 6 && !["image", "photo", "thumb", "default", "banner"].includes(nameWithoutExt)) {
+    const parent = parts.slice(-2).join("/");
+    return parent ? `${parent}/${filename}` : filename;
+  }
+
+  return norm;
+}
+
+/**
+ * Returns true if two image URLs refer to the same image.
+ */
+export function areImagesEquivalent(urlA?: string | null, urlB?: string | null): boolean {
+  if (!urlA || !urlB) return false;
+  const normA = normalizeImageUrl(urlA);
+  const normB = normalizeImageUrl(urlB);
+  if (!normA || !normB) return false;
+  if (normA === normB) return true;
+
+  const fpA = getImageFingerprint(urlA);
+  const fpB = getImageFingerprint(urlB);
+  if (fpA && fpB && fpA === fpB) return true;
+
+  return false;
 }
 
 /**
@@ -311,18 +364,54 @@ export function getPostThumbnail(item: Partial<NewsItem>): string {
 
 /**
  * Deduplicates repeated images in news HTML content.
- * Keeps only the first occurrence of an image with the same URL,
- * while preserving all other distinct (non-repeated) images!
+ * Can exclude specific image URLs (such as the main featured hero image),
+ * so that the featured image does not appear a second time inside the body text.
+ * Keeps only 1 occurrence of each distinct image, preserving all other unique photos!
  */
-export function deduplicateContentImages(html: string): string {
+export function deduplicateContentImages(
+  html: string,
+  excludeUrls: (string | undefined | null)[] = []
+): string {
   if (!html || typeof html !== "string") return "";
 
   const seenUrls = new Set<string>();
+  const seenFingerprints = new Set<string>();
 
-  // Helper to extract clean normalized image URL
-  const extractCleanUrl = (tag: string): string => {
-    const m = tag.match(/(?:src|data-src)=["']([^"']+)["']/i) || tag.match(/src=([^\s>]+)/i);
-    return m ? normalizeImageUrl(m[1]) : "";
+  // Helper to register an image as seen/excluded
+  const registerSeen = (raw?: string | null) => {
+    if (!raw || typeof raw !== "string") return;
+    const norm = normalizeImageUrl(raw);
+    if (norm) seenUrls.add(norm);
+    const fp = getImageFingerprint(raw);
+    if (fp) seenFingerprints.add(fp);
+  };
+
+  // Pre-seed with any excluded images (e.g., the top featured banner)
+  for (const ex of excludeUrls) {
+    registerSeen(ex);
+  }
+
+  // Helper to extract clean image URL from HTML tag
+  const extractUrlFromTag = (tag: string): string => {
+    const m =
+      tag.match(/(?:src|data-src|data-original)=["']([^"']+)["']/i) ||
+      tag.match(/src=([^\s>]+)/i);
+    return m ? m[1] : "";
+  };
+
+  const isDuplicateOrExcluded = (rawUrl: string): boolean => {
+    if (!rawUrl) return true;
+    const norm = normalizeImageUrl(rawUrl);
+    if (!norm) return true;
+    const fp = getImageFingerprint(rawUrl);
+
+    if (seenUrls.has(norm) || (fp && seenFingerprints.has(fp))) {
+      return true;
+    }
+    // Mark as seen for subsequent checks
+    seenUrls.add(norm);
+    if (fp) seenFingerprints.add(fp);
+    return false;
   };
 
   // 1. Process figures wrapping images
@@ -330,33 +419,36 @@ export function deduplicateContentImages(html: string): string {
     const imgMatch = innerContent.match(/<img[^>]+>/i);
     if (!imgMatch) return figureMatch;
 
-    const normUrl = extractCleanUrl(imgMatch[0]);
-    if (!normUrl) return figureMatch;
-
-    if (seenUrls.has(normUrl)) {
-      // Repeated image URL: remove the duplicate figure
+    const rawUrl = extractUrlFromTag(imgMatch[0]);
+    if (isDuplicateOrExcluded(rawUrl)) {
+      // Repeated or excluded image: remove the whole figure (including caption)
       return "";
     }
-    seenUrls.add(normUrl);
     return figureMatch;
   });
 
-  // 2. Process standalone <img> tags not inside figures
-  cleaned = cleaned.replace(/<img[^>]+>/gi, (imgTag) => {
-    const normUrl = extractCleanUrl(imgTag);
-    if (!normUrl) return imgTag;
-
-    if (seenUrls.has(normUrl)) {
-      // Repeated image URL: remove the duplicate img tag
+  // 2. Process standalone <img> inside paragraphs
+  cleaned = cleaned.replace(/<p[^>]*>\s*(<img[^>]+>)\s*<\/p>/gi, (pMatch, imgTag) => {
+    const rawUrl = extractUrlFromTag(imgTag);
+    if (isDuplicateOrExcluded(rawUrl)) {
       return "";
     }
-    seenUrls.add(normUrl);
+    return pMatch;
+  });
+
+  // 3. Process remaining standalone <img> tags
+  cleaned = cleaned.replace(/<img[^>]+>/gi, (imgTag) => {
+    const rawUrl = extractUrlFromTag(imgTag);
+    if (isDuplicateOrExcluded(rawUrl)) {
+      return "";
+    }
     return imgTag;
   });
 
-  // 3. Clean any orphaned empty figures or consecutive line breaks
+  // 4. Clean any orphaned empty figures, empty paragraphs, or consecutive line breaks
   cleaned = cleaned
     .replace(/<figure[^>]*>\s*<\/figure>/gi, "")
+    .replace(/<p[^>]*>\s*(?:&nbsp;|\s)*<\/p>/gi, "")
     .replace(/(<br\s*\/?>\s*){3,}/gi, "<br /><br />");
 
   return cleaned;
@@ -364,10 +456,11 @@ export function deduplicateContentImages(html: string): string {
 
 /**
  * Processes post HTML content:
- * - Deduplicates repeated images with the same URL (keeps only 1 occurrence, keeps all distinct images)
+ * - Strictly strips the featured hero image if it also appears inside the HTML body!
+ * - Deduplicates repeated images with the same identity (keeps only 1 occurrence, keeps all distinct images)
  * - Removes "da redação" text/paragraphs
- * - Guarantees referrerpolicy="no-referrer" and loading="lazy" on all <img> tags
- * - Keeps all unique non-repeated images intact!
+ * - Guarantees referrerpolicy="no-referrer" and loading="lazy" on all remaining <img> tags
+ * - Keeps all unique non-repeated secondary photos intact!
  */
 export function processPostContent(
   rawHtml?: string,
@@ -376,8 +469,16 @@ export function processPostContent(
 ): string {
   if (!rawHtml) return "";
 
-  // 1. Deduplicate repeated images by URL
-  let html = deduplicateContentImages(rawHtml);
+  // 1. Collect all images already shown outside the content body
+  const excludes = [
+    featuredImageUrl,
+    newsItem?.thumbnail,
+    newsItem?.imageUrl,
+    newsItem?.image,
+  ];
+
+  // Deduplicate and remove the featured hero image from the body
+  let html = deduplicateContentImages(rawHtml, excludes);
 
   // 2. Remove "da redação" text, headers, and paragraphs
   html = html
@@ -401,6 +502,7 @@ export function processPostContent(
   // 4. Clean empty figures or excessive breaks
   html = html
     .replace(/<figure[^>]*>\s*<\/figure>/gi, "")
+    .replace(/<p[^>]*>\s*(?:&nbsp;|\s)*<\/p>/gi, "")
     .replace(/(<br\s*\/?>\s*){3,}/gi, "<br /><br />")
     .trim();
 

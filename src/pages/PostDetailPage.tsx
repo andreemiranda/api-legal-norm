@@ -1,6 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { NewsItem } from "../types";
-import { extractPostImages, processPostContent, getProxyImageUrl, normalizeImageUrl } from "../utils/imageOptimizer";
+import {
+  extractPostImages,
+  processPostContent,
+  getProxyImageUrl,
+  normalizeImageUrl,
+  areImagesEquivalent,
+} from "../utils/imageOptimizer";
 import { formatDatePtBR, calculateReadingTime, stripHtml } from "../utils/date";
 import { AdSenseBanner } from "../components/AdSenseBanner";
 import {
@@ -53,19 +59,44 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
     }
   };
 
+  // Clean and optimize post content: deduplicates featured image and cleans editorial boilerplate
+  // STRICT: Automatically removes the featured hero image if it appears inside the body HTML
+  const sanitizedContent = useMemo(() => {
+    if (!post.content) return "";
+    return processPostContent(post.content, currentFeaturedImage, post);
+  }, [post.content, currentFeaturedImage, post]);
+
   // Additional non-repeated distinct images from the article
+  // STRICT RULE: Only keeps images that are NOT the featured image AND NOT already inside the body content!
   const additionalGalleryImages = useMemo(() => {
     if (!otherImages || otherImages.length === 0) return [];
-    const normFeatured = normalizeImageUrl(currentFeaturedImage);
-    const contentNorm = (post.content || "").toLowerCase();
 
-    return otherImages.filter((img) => {
-      const norm = normalizeImageUrl(img);
-      if (!norm || norm === normFeatured) return false;
-      if (contentNorm.includes(norm)) return false;
-      return true;
-    });
-  }, [otherImages, currentFeaturedImage, post.content]);
+    // Collect all images already shown on the page (top banner + any body photos)
+    const alreadyShown: string[] = [];
+    if (currentFeaturedImage) alreadyShown.push(currentFeaturedImage);
+
+    // Extract all image sources present in the sanitized body
+    const bodyMatches = [
+      ...sanitizedContent.matchAll(/<img[^>]+(?:src|data-src|data-original)=["']([^"']+)["']/gi),
+    ];
+    for (const m of bodyMatches) {
+      if (m[1]) alreadyShown.push(m[1]);
+    }
+
+    const uniqueGallery: string[] = [];
+    for (const img of otherImages) {
+      if (!img) continue;
+      const isAlreadyOnPage = alreadyShown.some((shown) => areImagesEquivalent(img, shown));
+      const isInGallery = uniqueGallery.some((g) => areImagesEquivalent(img, g));
+
+      if (!isAlreadyOnPage && !isInGallery) {
+        uniqueGallery.push(img);
+        alreadyShown.push(img);
+      }
+    }
+
+    return uniqueGallery;
+  }, [otherImages, currentFeaturedImage, sanitizedContent]);
 
   const readingTime = calculateReadingTime(post.content || post.description);
   const currentUrl = typeof window !== "undefined" ? window.location.href : "";
@@ -78,12 +109,6 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
       window.scrollTo({ top: 180, behavior: "smooth" });
     }
   }, [post.id, post.slug]);
-
-  // Clean and optimize post content: deduplicates featured image and cleans editorial boilerplate
-  const sanitizedContent = useMemo(() => {
-    if (!post.content) return "";
-    return processPostContent(post.content, currentFeaturedImage);
-  }, [post.content, currentFeaturedImage]);
 
   const cleanTitle = useMemo(() => {
     return (post.title || "")

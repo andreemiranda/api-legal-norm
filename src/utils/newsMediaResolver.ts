@@ -1,7 +1,12 @@
 import fs from "fs";
 import path from "path";
 import { NewsItem } from "../types";
-import { isValidApiImageUrl } from "./imageOptimizer";
+import {
+  isValidApiImageUrl,
+  normalizeImageUrl,
+  getImageFingerprint,
+  areImagesEquivalent,
+} from "./imageOptimizer";
 
 export interface MediaCatalogItem {
   id?: number | string;
@@ -26,26 +31,10 @@ let slugToMediaMap = new Map<string, MediaCatalogItem[]>();
 let categoryToMediaMap = new Map<string, MediaCatalogItem[]>();
 let sourceToMediaMap = new Map<string, MediaCatalogItem[]>();
 
-export function normalizeImageUrl(url?: string | null): string {
-  if (!url || typeof url !== "string") return "";
-  let clean = url.trim();
-  try {
-    if (clean.includes("/next_imagem?url=") || clean.includes("/next_image?url=")) {
-      const parsed = new URL(clean, "http://localhost");
-      clean = parsed.searchParams.get("url") || clean;
-    }
-  } catch {}
-
-  return clean
-    .split("?")[0]
-    .replace(/^https?:\/\//i, "")
-    .replace(/\/+$/, "")
-    .toLowerCase();
-}
-
 export function deduplicateImageList(urls: (string | undefined | null)[]): string[] {
   const result: string[] = [];
-  const seen = new Set<string>();
+  const seenNorm = new Set<string>();
+  const seenFp = new Set<string>();
 
   for (const raw of urls) {
     if (!raw || typeof raw !== "string") continue;
@@ -53,8 +42,11 @@ export function deduplicateImageList(urls: (string | undefined | null)[]): strin
     if (!trimmed || !isValidApiImageUrl(trimmed)) continue;
 
     const norm = normalizeImageUrl(trimmed);
-    if (norm && !seen.has(norm)) {
-      seen.add(norm);
+    const fp = getImageFingerprint(trimmed);
+
+    if (norm && !seenNorm.has(norm) && (!fp || !seenFp.has(fp))) {
+      seenNorm.add(norm);
+      if (fp) seenFp.add(fp);
       result.push(trimmed);
     }
   }

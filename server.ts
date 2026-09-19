@@ -12,6 +12,7 @@ import { buildCategoryFeed } from "./src/utils/categoryFeedManager";
 import { extractTagsForNewsItem, computeTagCounts } from "./src/utils/tagEngine";
 import { verifyNewsImage, resolveAuthenticNewsImage } from "./src/utils/imageVerification";
 import { resolveNewsMedia, initMediaCatalog } from "./src/utils/newsMediaResolver";
+import { deduplicateContentImages } from "./src/utils/imageOptimizer";
 
 // Automatically load .env
 if (fs.existsSync(path.join(process.cwd(), ".env"))) {
@@ -324,34 +325,6 @@ const UPSTREAM_API = "https://api-news-media.netlify.app/api/news";
 const STORAGE_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_STORAGE_LIMIT_BYTES || process.env.FIREBASE_STORAGE_LIMIT_BYTES || "3006477107", 10);
 const TRAFFIC_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_TRAFFIC_LIMIT_BYTES || process.env.FIREBASE_TRAFFIC_LIMIT_BYTES || "31568007987", 10);
 
-function deduplicateContentImages(html?: string): string {
-  if (!html || typeof html !== "string") return "";
-  const seen = new Set<string>();
-  const normalize = (u: string) => u.split("?")[0].replace(/^https?:\/\//i, "").toLowerCase().trim();
-
-  // Deduplicate figures wrapping images
-  let cleaned = html.replace(/<figure[^>]*>([\s\S]*?)<\/figure>/gi, (fig, inner) => {
-    const m = inner.match(/(?:src|data-src)=["']([^"']+)["']/i);
-    if (!m) return fig;
-    const norm = normalize(m[1]);
-    if (seen.has(norm)) return "";
-    seen.add(norm);
-    return fig;
-  });
-
-  // Deduplicate standalone img tags
-  cleaned = cleaned.replace(/<img[^>]+>/gi, (img) => {
-    const m = img.match(/(?:src|data-src)=["']([^"']+)["']/i);
-    if (!m) return img;
-    const norm = normalize(m[1]);
-    if (seen.has(norm)) return "";
-    seen.add(norm);
-    return img;
-  });
-
-  return cleaned.replace(/<figure[^>]*>\s*<\/figure>/gi, "").replace(/(<br\s*\/?>\s*){3,}/gi, "<br /><br />");
-}
-
 function processAndApplySobrescricao(rawNews: any[]) {
   if (!Array.isArray(rawNews) || rawNews.length === 0) return;
 
@@ -361,23 +334,25 @@ function processAndApplySobrescricao(rawNews: any[]) {
     .map((item: any) => {
       const decodedTitle = cleanEditorialText(decodeHtml(item.title));
       const cleanDesc = cleanEditorialText(decodeHtml(item.description));
-      const cleanContent = deduplicateContentImages(cleanEditorialText(item.content));
-      const tags = item.tags && item.tags.length > 0
-        ? item.tags
-        : extractTagsForNewsItem({ title: decodedTitle, description: cleanDesc, content: cleanContent, category: item.category });
+      const rawTextContent = cleanEditorialText(item.content);
 
-      const itemWithCleanText = {
+      // Extract authentic images from content, fields and media catalog (guaranteeing at least 1 image, non-repeated)
+      const mediaResult = resolveNewsMedia({
         ...item,
         title: decodedTitle,
         description: cleanDesc,
-        content: cleanContent,
-      };
-
-      // Extract authentic images from content, fields and media catalog (guaranteeing at least 1 image, non-repeated)
-      const mediaResult = resolveNewsMedia(itemWithCleanText);
+        content: rawTextContent,
+      });
       const verifiedImgUrl = mediaResult.primaryImage;
       const verifiedAlt = mediaResult.verifiedAlt || decodedTitle;
       const distinctImages = mediaResult.images;
+
+      // Clean content HTML: deduplicate repeated images AND remove the featured banner image from body text
+      const cleanContent = deduplicateContentImages(rawTextContent, [verifiedImgUrl]);
+
+      const tags = item.tags && item.tags.length > 0
+        ? item.tags
+        : extractTagsForNewsItem({ title: decodedTitle, description: cleanDesc, content: cleanContent, category: item.category });
 
       return {
         ...item,
