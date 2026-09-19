@@ -1,4 +1,5 @@
 import express from "express";
+import http from "http";
 import path from "path";
 import fs from "fs";
 import nodemailer from "nodemailer";
@@ -310,13 +311,42 @@ try {
   console.error("Error loading initial data files:", err);
 }
 
-// Firebase Realtime Database and Sobrescrição Engine (~1.9 GB Storage & ~20 GB Traffic)
+// Firebase Realtime Database and Sobrescrição Engine (~2.8 GB Storage & ~29.4 GB Traffic across 3 instances)
 const RTDB_PRIMARY = "https://legal-norm2-default-rtdb.firebaseio.com/news.json";
 const RTDB_MIRROR = "https://legal-norm3-default-rtdb.firebaseio.com/news.json";
+const RTDB_TERTIARY = "https://legal-norm1-default-rtdb.firebaseio.com/news.json";
 const UPSTREAM_API = "https://api-news-media.netlify.app/api/news";
 
-const STORAGE_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_STORAGE_LIMIT_BYTES || process.env.FIREBASE_STORAGE_LIMIT_BYTES || "1932735283", 10);
-const TRAFFIC_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_TRAFFIC_LIMIT_BYTES || process.env.FIREBASE_TRAFFIC_LIMIT_BYTES || "21474836480", 10);
+const STORAGE_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_STORAGE_LIMIT_BYTES || process.env.FIREBASE_STORAGE_LIMIT_BYTES || "3006477107", 10);
+const TRAFFIC_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_TRAFFIC_LIMIT_BYTES || process.env.FIREBASE_TRAFFIC_LIMIT_BYTES || "31568007987", 10);
+
+function deduplicateContentImages(html?: string): string {
+  if (!html || typeof html !== "string") return "";
+  const seen = new Set<string>();
+  const normalize = (u: string) => u.split("?")[0].replace(/^https?:\/\//i, "").toLowerCase().trim();
+
+  // Deduplicate figures wrapping images
+  let cleaned = html.replace(/<figure[^>]*>([\s\S]*?)<\/figure>/gi, (fig, inner) => {
+    const m = inner.match(/(?:src|data-src)=["']([^"']+)["']/i);
+    if (!m) return fig;
+    const norm = normalize(m[1]);
+    if (seen.has(norm)) return "";
+    seen.add(norm);
+    return fig;
+  });
+
+  // Deduplicate standalone img tags
+  cleaned = cleaned.replace(/<img[^>]+>/gi, (img) => {
+    const m = img.match(/(?:src|data-src)=["']([^"']+)["']/i);
+    if (!m) return img;
+    const norm = normalize(m[1]);
+    if (seen.has(norm)) return "";
+    seen.add(norm);
+    return img;
+  });
+
+  return cleaned.replace(/<figure[^>]*>\s*<\/figure>/gi, "").replace(/(<br\s*\/?>\s*){3,}/gi, "<br /><br />");
+}
 
 function processAndApplySobrescricao(rawNews: any[]) {
   if (!Array.isArray(rawNews) || rawNews.length === 0) return;
@@ -327,7 +357,7 @@ function processAndApplySobrescricao(rawNews: any[]) {
     .map((item: any) => {
       const decodedTitle = cleanEditorialText(decodeHtml(item.title));
       const cleanDesc = cleanEditorialText(decodeHtml(item.description));
-      const cleanContent = cleanEditorialText(item.content);
+      const cleanContent = deduplicateContentImages(cleanEditorialText(item.content));
       const tags = item.tags && item.tags.length > 0
         ? item.tags
         : extractTagsForNewsItem({ title: decodedTitle, description: cleanDesc, content: cleanContent, category: item.category });
@@ -358,11 +388,25 @@ function processAndApplySobrescricao(rawNews: any[]) {
       };
     })
     .filter((item: any) => {
-      const key = item.slug || item.id;
+      const key = item.link || item.id || item.slug;
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
     });
+
+  // Ensure unique slugs across all items to avoid any routing conflicts
+  const usedSlugs = new Set<string>();
+  for (const item of processed) {
+    let s = item.slug || `post/${slugify(item.category || "noticias")}/noticia/${item.id}`;
+    let uniqueSlug = s;
+    let counter = 1;
+    while (usedSlugs.has(uniqueSlug)) {
+      counter++;
+      uniqueSlug = `${s}-${counter}`;
+    }
+    usedSlugs.add(uniqueSlug);
+    item.slug = uniqueSlug;
+  }
 
   // Strict chronological ordering
   processed.sort((a: any, b: any) => {
@@ -427,33 +471,73 @@ const SYNC_INTERVAL_MS = 30 * 60 * 1000; // 30 minutos
 
 let isUpstreamSyncing = false;
 
+const NEWS_CACHE_FILE = path.join(process.cwd(), "src", "data", "newsCache.json");
+const DIST_CACHE_FILE = path.join(process.cwd(), "dist", "data", "newsCache.json");
+
+// Boot: Carrega imediatamente o catálogo completo pré-processado para disponibilidade instantânea
+function loadInitialNewsCache() {
+  const possiblePaths = [
+    NEWS_CACHE_FILE,
+    DIST_CACHE_FILE,
+    path.join(process.cwd(), "data", "newsCache.json"),
+  ];
+
+  for (const p of possiblePaths) {
+    try {
+      if (fs.existsSync(p)) {
+        const raw = fs.readFileSync(p, "utf-8");
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          console.log(`[Boot] Carregando ${parsed.length} matérias do cache local (${p})...`);
+          processAndApplySobrescricao(parsed);
+          console.log(`[Boot] Catálogo ativo com ${allNewsData.length} matérias prontas para exibição imediata.`);
+          return true;
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[Boot] Aviso ao ler cache ${p}:`, err?.message || err);
+    }
+  }
+  return false;
+}
+
+// Carrega imediatamente no arranque
+loadInitialNewsCache();
+
 async function syncNewsFromUpstreamApi() {
   if (isUpstreamSyncing) return;
   isUpstreamSyncing = true;
-  console.log(`[Upstream News API] Buscando notícias em tempo real direto da API (fontes ativas)...`);
+  console.log(`[Upstream News API] Buscando notícias em tempo real direto da API com limit=100 (todas as matérias)...`);
 
   try {
     const rawItems: any[] = [];
-    const chunkSize = 12;
+    const chunkSize = 5; // Concorrência balanceada para evitar erros 502/rate-limit
 
     for (let i = 0; i < sourcesData.length; i += chunkSize) {
       const slice = sourcesData.slice(i, i + chunkSize);
       const results = await Promise.allSettled(
         slice.map(async (source: any) => {
-          const url = `${NEWS_API_BASE_URL}/api/news/${source.id}?api_key=${NEWS_API_KEY}`;
-          const res = await fetch(url, { signal: AbortSignal.timeout(6500) });
-          if (!res.ok) return [];
-          const data = await res.json();
-          if (!Array.isArray(data)) return [];
-
-          return data.map((item: any) => {
-            return {
-              ...item,
-              sourceId: source.id,
-              sourceSite: source.originalSite || source.site || "Norma Jurídica",
-              category: source.category, // Categoria estrita da fonte — sem troca de categoria
-            };
-          });
+          const url = `${NEWS_API_BASE_URL}/api/news/${source.id}?api_key=${NEWS_API_KEY}&limit=100`;
+          for (let attempt = 0; attempt <= 2; attempt++) {
+            try {
+              const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+              if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data)) {
+                  return data.map((item: any) => ({
+                    ...item,
+                    sourceId: source.id,
+                    sourceSite: source.originalSite || source.site || "Norma Jurídica",
+                    category: source.category, // Categoria estrita da fonte — sem troca de categoria
+                  }));
+                }
+              }
+            } catch (err) {}
+            if (attempt < 2) {
+              await new Promise((r) => setTimeout(r, 1000));
+            }
+          }
+          return [];
         })
       );
 
@@ -464,7 +548,7 @@ async function syncNewsFromUpstreamApi() {
       }
     }
 
-    console.log(`[Upstream News API] ${rawItems.length} matérias coletadas em tempo real.`);
+    console.log(`[Upstream News API] ${rawItems.length} matérias coletadas em tempo real com limit=100.`);
 
     if (rawItems.length > 0) {
       // Merge with previous allNewsData to retain deep archive, placing newest items at the top
@@ -473,6 +557,15 @@ async function syncNewsFromUpstreamApi() {
       sourcesMonitoringState.lastCheck = new Date().toISOString();
       sourcesMonitoringState.upstreamConnected = true;
       sourcesMonitoringState.ingestedNewsCount += rawItems.length;
+
+      // Persiste cache no disco para inicialização ultrarrápida no próximo boot
+      try {
+        const dir = path.dirname(NEWS_CACHE_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(NEWS_CACHE_FILE, JSON.stringify(allNewsData));
+      } catch (err) {
+        console.warn("[Upstream News API] Falha ao salvar newsCache.json:", err);
+      }
     }
   } catch (err: any) {
     console.error("[Upstream News API] Erro ao sincronizar:", err?.message || err);
@@ -499,10 +592,17 @@ async function initialFirebaseFallback() {
   } catch {}
 }
 
-// Initial load: fallback first if empty, then immediate live Upstream sync
-initialFirebaseFallback().then(() => {
-  syncNewsFromUpstreamApi();
-});
+// Se não carregou do cache, tenta Firebase; e agenda a sincronização upstream em segundo plano
+if (allNewsData.length === 0) {
+  initialFirebaseFallback().then(() => {
+    syncNewsFromUpstreamApi();
+  });
+} else {
+  // Já tem notícias do cache! Roda upstream sync de fundo sem bloquear
+  setTimeout(() => {
+    syncNewsFromUpstreamApi();
+  }, 2000);
+}
 
 // Periodic real-time upstream sync every 30 minutes
 setInterval(syncNewsFromUpstreamApi, SYNC_INTERVAL_MS);
@@ -762,6 +862,16 @@ app.get("/api/firebase/config", (_req, res) => {
       messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_2_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_2_MESSAGING_SENDER_ID || process.env.FIREBASE_2_MESSAGING_SENDER_ID || "907491581027",
       appId: process.env.NEXT_PUBLIC_FIREBASE_2_APP_ID || process.env.VITE_FIREBASE_2_APP_ID || process.env.FIREBASE_2_APP_ID || "1:907491581027:web:e45c8faad065d6b8fe6c56",
     },
+    tertiary: {
+      apiKey: process.env.NEXT_PUBLIC_FIREBASE_3_API_KEY || process.env.VITE_FIREBASE_3_API_KEY || process.env.FIREBASE_3_API_KEY || "AIzaSyBE4327ug3rRtatNFcNhLw6-hc-aYJzSWM",
+      authDomain: process.env.NEXT_PUBLIC_FIREBASE_3_AUTH_DOMAIN || process.env.VITE_FIREBASE_3_AUTH_DOMAIN || process.env.FIREBASE_3_AUTH_DOMAIN || "legal-norm1.firebaseapp.com",
+      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_3_DATABASE_URL || process.env.VITE_FIREBASE_3_DATABASE_URL || process.env.FIREBASE_3_DATABASE_URL || "https://legal-norm1-default-rtdb.firebaseio.com",
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_3_PROJECT_ID || process.env.VITE_FIREBASE_3_PROJECT_ID || process.env.FIREBASE_3_PROJECT_ID || "legal-norm1",
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_3_STORAGE_BUCKET || process.env.VITE_FIREBASE_3_STORAGE_BUCKET || process.env.FIREBASE_3_STORAGE_BUCKET || "legal-norm1.firebasestorage.app",
+      messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_3_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_3_MESSAGING_SENDER_ID || process.env.FIREBASE_3_MESSAGING_SENDER_ID || "865198316919",
+      appId: process.env.NEXT_PUBLIC_FIREBASE_3_APP_ID || process.env.VITE_FIREBASE_3_APP_ID || process.env.FIREBASE_3_APP_ID || "1:865198316919:web:ebcc9926dc72926f429572",
+      measurementId: process.env.NEXT_PUBLIC_FIREBASE_3_MEASUREMENT_ID || process.env.VITE_FIREBASE_3_MEASUREMENT_ID || process.env.FIREBASE_3_MEASUREMENT_ID || "G-7H2ZS21C70",
+    },
   });
 });
 
@@ -858,9 +968,6 @@ app.get(["/api/news/category/:category", "/api/feed/news/category/:category"], a
   const rawCat = req.params.category;
   const decodedCat = decodeURIComponent(rawCat).trim();
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
-  const perPage = req.query.all === "true" || req.query.limit === "all"
-    ? 5000
-    : Math.max(1, Math.min(5000, parseInt((req.query.per_page || req.query.limit) as string) || 12));
   const tagFilter = (req.query.tag as string || "").trim().toLowerCase();
 
   // Guarantees at least 250 items per category with tag taxonomy
@@ -873,10 +980,15 @@ app.get(["/api/news/category/:category", "/api/feed/news/category/:category"], a
     );
   }
 
+  const isAll = req.query.all === "true" || req.query.limit === "all";
+  const perPage = isAll
+    ? Math.max(items.length, 50000)
+    : Math.max(1, Math.min(50000, parseInt((req.query.per_page || req.query.limit) as string) || 12));
+
   const total = items.length;
   const totalPages = Math.ceil(total / perPage) || 1;
   const startIndex = (page - 1) * perPage;
-  const paginated = req.query.all === "true" || req.query.limit === "all"
+  const paginated = isAll
     ? items
     : items.slice(startIndex, startIndex + perPage);
 
@@ -900,8 +1012,8 @@ const getNewsHandler = (req: express.Request, res: express.Response) => {
   const isAll = req.query.all === "true" || req.query.limit === "all";
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const perPage = isAll
-    ? allNewsData.length || 5000
-    : Math.max(1, Math.min(5000, parseInt((req.query.per_page || req.query.limit) as string) || 12));
+    ? Math.max(allNewsData.length, 50000)
+    : Math.max(1, Math.min(50000, parseInt((req.query.per_page || req.query.limit) as string) || 12));
 
   const rawCat = (req.query.category as string) || "";
   const category = decodeURIComponent(rawCat).trim();
@@ -1733,9 +1845,14 @@ app.get("/sitemap.xsl", (_req, res) => {
 // Development / Production Vite Integration
 // -------------------------------------------------------------
 async function startServer() {
+  const httpServer = http.createServer(app);
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: process.env.DISABLE_HMR === "true" ? false : { server: httpServer },
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -1883,7 +2000,26 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.on("error", (err: any) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`Port ${PORT} is already in use. Exiting cleanly...`);
+      process.exit(1);
+    } else {
+      console.error("Server error:", err);
+    }
+  });
+
+  const shutdown = () => {
+    httpServer.close(() => {
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(0), 1500).unref();
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Norma Jurídica server running at http://0.0.0.0:${PORT}`);
   });
 }

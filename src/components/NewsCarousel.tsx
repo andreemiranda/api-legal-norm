@@ -54,24 +54,23 @@ export const NewsCarousel: React.FC<NewsCarouselProps> = ({ news, onSelectNews, 
       onMouseLeave={() => setIsPaused(false)}
       className="relative w-full rounded-2xl overflow-hidden bg-slate-950 border border-blue-900/60 shadow-2xl group select-none"
     >
-      {/* Visual Background with subtle zoom */}
-      <div className="relative h-[360px] sm:h-[420px] md:h-[460px] w-full overflow-hidden">
+      {/* Visual Background with subtle zoom and vibrant natural brightness */}
+      <div className="relative h-[360px] sm:h-[420px] md:h-[460px] w-full overflow-hidden bg-slate-900">
         {thumbnail ? (
           <img
             src={thumbnail}
             alt={currentItem.title}
             referrerPolicy="no-referrer"
-            className="w-full h-full object-cover object-center transform transition-transform duration-1000 ease-out group-hover:scale-105 filter brightness-75"
+            className="w-full h-full object-cover object-center transform transition-transform duration-1000 ease-out group-hover:scale-105"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-slate-900 filter brightness-75">
-            <span className="text-xl uppercase font-bold tracking-wider text-slate-800">Sem Imagem</span>
+          <div className="w-full h-full flex items-center justify-center bg-slate-900">
+            <span className="text-xl uppercase font-bold tracking-wider text-slate-700">Sem Imagem</span>
           </div>
         )}
 
-        {/* Gradient overlays for readability and dark blue atmosphere */}
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/70 to-blue-950/40 pointer-events-none" />
-        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/40 to-transparent pointer-events-none" />
+        {/* Camada suave apenas no rodapé inferior para preservar a luminosidade e nitidez total da imagem */}
+        <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-slate-950/80 via-slate-950/30 to-transparent pointer-events-none" />
 
         {/* Lateral Navigation Arrows centered vertically */}
         {items.length > 1 && (

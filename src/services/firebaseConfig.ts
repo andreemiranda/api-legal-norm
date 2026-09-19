@@ -14,6 +14,7 @@ export interface FirebaseInstanceConfig {
   storageBucket?: string;
   messagingSenderId?: string;
   appId?: string;
+  measurementId?: string;
 }
 
 // Read helper with multi-prefix fallback (NEXT_PUBLIC_ or VITE_) and default fallback value
@@ -48,6 +49,7 @@ function getSavedConfig(key: string): FirebaseInstanceConfig | null {
 
 const savedPrimary = getSavedConfig("nj_firebase_primary");
 const savedMirror = getSavedConfig("nj_firebase_mirror");
+const savedTertiary = getSavedConfig("nj_firebase_tertiary");
 
 // 1. Primary Firebase Project Config (legal-norm2)
 export const primaryConfig: FirebaseInstanceConfig = {
@@ -71,6 +73,18 @@ export const mirrorConfig: FirebaseInstanceConfig = {
   appId: savedMirror?.appId || getEnv("NEXT_PUBLIC_FIREBASE_2_APP_ID", "VITE_FIREBASE_2_APP_ID", "1:907491581027:web:e45c8faad065d6b8fe6c56"),
 };
 
+// 3. Tertiary Firebase Project Config (legal-norm1)
+export const tertiaryConfig: FirebaseInstanceConfig = {
+  apiKey: savedTertiary?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_3_API_KEY", "VITE_FIREBASE_3_API_KEY", "AIzaSyBE4327ug3rRtatNFcNhLw6-hc-aYJzSWM"),
+  authDomain: savedTertiary?.authDomain || getEnv("NEXT_PUBLIC_FIREBASE_3_AUTH_DOMAIN", "VITE_FIREBASE_3_AUTH_DOMAIN", "legal-norm1.firebaseapp.com"),
+  databaseURL: savedTertiary?.databaseURL || getEnv("NEXT_PUBLIC_FIREBASE_3_DATABASE_URL", "VITE_FIREBASE_3_DATABASE_URL", "https://legal-norm1-default-rtdb.firebaseio.com"),
+  projectId: savedTertiary?.projectId || getEnv("NEXT_PUBLIC_FIREBASE_3_PROJECT_ID", "VITE_FIREBASE_3_PROJECT_ID", "legal-norm1"),
+  storageBucket: savedTertiary?.storageBucket || getEnv("NEXT_PUBLIC_FIREBASE_3_STORAGE_BUCKET", "VITE_FIREBASE_3_STORAGE_BUCKET", "legal-norm1.firebasestorage.app"),
+  messagingSenderId: savedTertiary?.messagingSenderId || getEnv("NEXT_PUBLIC_FIREBASE_3_MESSAGING_SENDER_ID", "VITE_FIREBASE_3_MESSAGING_SENDER_ID", "865198316919"),
+  appId: savedTertiary?.appId || getEnv("NEXT_PUBLIC_FIREBASE_3_APP_ID", "VITE_FIREBASE_3_APP_ID", "1:865198316919:web:ebcc9926dc72926f429572"),
+  measurementId: savedTertiary?.measurementId || getEnv("NEXT_PUBLIC_FIREBASE_3_MEASUREMENT_ID", "VITE_FIREBASE_3_MEASUREMENT_ID", "G-7H2ZS21C70"),
+};
+
 export function isConfigValid(cfg: FirebaseInstanceConfig): boolean {
   if (!cfg || !cfg.apiKey) return false;
   if (cfg.apiKey === "YOUR_FIREBASE_API_KEY" || !cfg.apiKey.startsWith("AIzaSy")) return false;
@@ -84,6 +98,9 @@ let primaryAuthInstance: Auth | null = null;
 
 let mirrorAppInstance: FirebaseApp | null = null;
 let mirrorDbInstance: Database | null = null;
+
+let tertiaryAppInstance: FirebaseApp | null = null;
+let tertiaryDbInstance: Database | null = null;
 
 // Listeners when config is hydrated
 const configListeners: Array<() => void> = [];
@@ -118,10 +135,16 @@ export async function ensureFirebaseInitialized(): Promise<boolean> {
           if (json.mirror && json.mirror.apiKey) {
             Object.assign(mirrorConfig, json.mirror);
           }
+          if (json.tertiary && json.tertiary.apiKey) {
+            Object.assign(tertiaryConfig, json.tertiary);
+          }
           // Re-initialize
           getPrimaryFirebase();
           if (isConfigValid(mirrorConfig)) {
             getMirrorFirebase();
+          }
+          if (isConfigValid(tertiaryConfig)) {
+            getTertiaryFirebase();
           }
           configListeners.forEach((l) => {
             try {
@@ -219,3 +242,37 @@ export function getMirrorFirebase(): {
     return { app: null, db: null, isValid: false };
   }
 }
+
+// Lazy initialize Tertiary Firebase (legal-norm1)
+export function getTertiaryFirebase(): {
+  app: FirebaseApp | null;
+  db: Database | null;
+  isValid: boolean;
+} {
+  if (!isConfigValid(tertiaryConfig)) {
+    return { app: null, db: null, isValid: false };
+  }
+
+  try {
+    if (!tertiaryAppInstance) {
+      const existing = getApps().find((a) => a.name === "firebase_tertiary_3");
+      tertiaryAppInstance = existing || initializeApp(tertiaryConfig as any, "firebase_tertiary_3");
+    }
+    if (!tertiaryDbInstance && tertiaryAppInstance && tertiaryConfig.databaseURL) {
+      try {
+        tertiaryDbInstance = getDatabase(tertiaryAppInstance);
+      } catch (e) {
+        console.warn("RTDB Tertiary connect note:", e);
+      }
+    }
+    return {
+      app: tertiaryAppInstance,
+      db: tertiaryDbInstance,
+      isValid: true,
+    };
+  } catch (err) {
+    console.warn("Firebase Tertiary Init Warning:", err);
+    return { app: null, db: null, isValid: false };
+  }
+}
+

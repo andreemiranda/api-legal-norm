@@ -169,12 +169,16 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
 
   const primaryTrafficPct = getPercent(routerState.primaryTraffic.bytesUsed, PER_DB_TRAFFIC_THRESHOLD);
   const mirrorTrafficPct = getPercent(routerState.mirrorTraffic.bytesUsed, PER_DB_TRAFFIC_THRESHOLD);
-  const totalTrafficUsed = routerState.primaryTraffic.bytesUsed + routerState.mirrorTraffic.bytesUsed;
+  const tertiaryTrafficPct = getPercent(routerState.tertiaryTraffic.bytesUsed, PER_DB_TRAFFIC_THRESHOLD);
+  const totalTrafficUsed =
+    routerState.primaryTraffic.bytesUsed + routerState.mirrorTraffic.bytesUsed + routerState.tertiaryTraffic.bytesUsed;
   const combinedTrafficPct = getPercent(totalTrafficUsed, TOTAL_TRAFFIC_LIMIT_BYTES);
 
   const primaryStoragePct = getPercent(routerState.primaryStorage.bytesUsed, PER_DB_STORAGE_THRESHOLD);
   const mirrorStoragePct = getPercent(routerState.mirrorStorage.bytesUsed, PER_DB_STORAGE_THRESHOLD);
-  const totalStorageUsed = routerState.primaryStorage.bytesUsed + routerState.mirrorStorage.bytesUsed;
+  const tertiaryStoragePct = getPercent(routerState.tertiaryStorage.bytesUsed, PER_DB_STORAGE_THRESHOLD);
+  const totalStorageUsed =
+    routerState.primaryStorage.bytesUsed + routerState.mirrorStorage.bytesUsed + routerState.tertiaryStorage.bytesUsed;
   const combinedStoragePct = getPercent(totalStorageUsed, TOTAL_STORAGE_LIMIT_BYTES);
 
   // GATE 1: Se o usuário NÃO for administrador autenticado, exibe a tela de login restrito via Google
@@ -429,11 +433,12 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                     <h3 className="text-base font-bold text-white capitalize">
                       {routerState.activeReadSource === "primary" && "Banco 1 • legal-norm2 (Realtime Database)"}
                       {routerState.activeReadSource === "mirror" && "Banco 2 • legal-norm3 (Realtime Database)"}
+                      {routerState.activeReadSource === "tertiary" && "Banco 3 • legal-norm1 (Realtime Database)"}
                       {routerState.activeReadSource === "api" && "API Proxy Restrita (Proteção de Tráfego)"}
                     </h3>
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    Rotação automática em ~9,8 GB por banco. Ao atingir o teto de 20 GB, a sobrescrição de tráfego mantém as requisições ativas.
+                    Rotação automática em ~9,8 GB por banco. Ao atingir o teto de ~29,4 GB, a sobrescrição de tráfego mantém as requisições ativas.
                   </p>
                 </div>
 
@@ -449,11 +454,15 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                     Automático
                   </button>
                   <button
-                    onClick={() =>
-                      trafficRouter.setManualSource(
-                        routerState.activeReadSource === "primary" ? "mirror" : "primary"
-                      )
-                    }
+                    onClick={() => {
+                      const next =
+                        routerState.activeReadSource === "primary"
+                          ? "mirror"
+                          : routerState.activeReadSource === "mirror"
+                          ? "tertiary"
+                          : "primary";
+                      trafficRouter.setManualSource(next);
+                    }}
                     className="px-3 py-1.5 rounded-xl text-xs font-medium bg-blue-950/80 border border-blue-700/60 text-blue-300 hover:bg-blue-900 transition-colors flex items-center gap-1.5 cursor-pointer"
                   >
                     <ArrowRightLeft className="w-3.5 h-3.5" />
@@ -465,9 +474,9 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
               {/* Combined Progress */}
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
                 <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-white">Capacidade Global de Tráfego Mensal (2 Bancos)</span>
+                  <span className="font-semibold text-white">Capacidade Global de Tráfego Mensal (3 Bancos)</span>
                   <span className="font-mono text-blue-400 font-bold">
-                    {formatBytes(totalTrafficUsed)} / 20.00 GB
+                    {formatBytes(totalTrafficUsed)} / 29.40 GB
                   </span>
                 </div>
                 <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
@@ -477,12 +486,12 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                   />
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Sobrescrição de tráfego opera nas proximidades do limite de 20 GB sem queda de serviço.
+                  Sobrescrição de tráfego opera nas proximidades do limite de ~29,4 GB sem queda de serviço.
                 </p>
               </div>
 
-              {/* Individual Traffic Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Individual Traffic Cards (3 instances) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -490,14 +499,14 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                       <h4 className="font-bold text-white text-sm">Banco 1 • legal-norm2</h4>
                     </div>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
-                      ~10 GB Limite
+                      ~9.8 GB Limite
                     </span>
                   </div>
                   <div>
                     <div className="flex justify-between text-xs mb-1">
                       <span className="text-slate-400">Tráfego Utilizado:</span>
                       <span className="font-mono text-white font-semibold">
-                        {formatBytes(routerState.primaryTraffic.bytesUsed)} / 10.00 GB
+                        {formatBytes(routerState.primaryTraffic.bytesUsed)} / 9.80 GB
                       </span>
                     </div>
                     <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -519,14 +528,14 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                       <h4 className="font-bold text-white text-sm">Banco 2 • legal-norm3</h4>
                     </div>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
-                      ~10 GB Limite
+                      ~9.8 GB Limite
                     </span>
                   </div>
                   <div>
                     <div className="flex justify-between text-xs mb-1">
                       <span className="text-slate-400">Tráfego Utilizado:</span>
                       <span className="font-mono text-white font-semibold">
-                        {formatBytes(routerState.mirrorTraffic.bytesUsed)} / 10.00 GB
+                        {formatBytes(routerState.mirrorTraffic.bytesUsed)} / 9.80 GB
                       </span>
                     </div>
                     <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -540,37 +549,69 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                     Requisições atendidas: <span className="font-mono text-white">{routerState.mirrorTraffic.requestCount}</span>
                   </div>
                 </div>
+
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Server className="w-4 h-4 text-amber-400" />
+                      <h4 className="font-bold text-white text-sm">Banco 3 • legal-norm1</h4>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800">
+                      ~9.8 GB Limite
+                    </span>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-400">Tráfego Utilizado:</span>
+                      <span className="font-mono text-white font-semibold">
+                        {formatBytes(routerState.tertiaryTraffic.bytesUsed)} / 9.80 GB
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-amber-500 transition-all duration-500"
+                        style={{ width: `${Math.max(tertiaryTrafficPct, 2)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    Requisições atendidas: <span className="font-mono text-white">{routerState.tertiaryTraffic.requestCount}</span>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
-          {/* TAB 2: ARMAZENAMENTO & CAPACIDADE (1,9 GB) */}
+          {/* TAB 2: ARMAZENAMENTO & CAPACIDADE (~2,8 GB) */}
           {activeTab === "storage" && (
             <div className="space-y-6">
               {/* Storage Target Banner */}
               <div className="p-4 rounded-2xl border border-blue-900/60 bg-blue-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <span className="text-xs font-mono uppercase text-blue-400 block mb-1">
-                    Alvo Ativo de Gravação (Teto: ~950 MB por Banco)
+                    Alvo Ativo de Gravação (Teto: ~0,9 GB por Banco)
                   </span>
                   <div className="flex items-center gap-2">
                     <span
                       className={`w-3 h-3 rounded-full ${
-                        routerState.activeWriteTarget === "sobrescricao_both_active"
+                        routerState.activeWriteTarget === "sobrescricao_all_active"
                           ? "bg-amber-400 animate-pulse"
                           : routerState.activeWriteTarget === "primary"
                           ? "bg-emerald-400"
-                          : "bg-purple-400"
+                          : routerState.activeWriteTarget === "mirror"
+                          ? "bg-purple-400"
+                          : "bg-amber-400"
                       }`}
                     />
                     <h3 className="text-base font-bold text-white">
                       {routerState.activeWriteTarget === "primary" && "Gravando em Banco 1 (legal-norm2)"}
                       {routerState.activeWriteTarget === "mirror" && "Gravando em Banco 2 (legal-norm3)"}
-                      {routerState.activeWriteTarget === "sobrescricao_both_active" && "Sobrescrição Automática Ativa em Ambos (~1,9 GB)"}
+                      {routerState.activeWriteTarget === "tertiary" && "Gravando em Banco 3 (legal-norm1)"}
+                      {routerState.activeWriteTarget === "sobrescricao_all_active" && "Sobrescrição Automática Ativa em Todos (~2,8 GB)"}
                     </h3>
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    Se o Banco 1 atingir 950 MB, novas gravações passam para o Banco 2. Se ambos encherem, o mecanismo de sobrescrição (FIFO) substitui artigos antigos por novos automaticamente.
+                    Se um banco atingir 0,9 GB, novas gravações passam para o próximo. Ao atingir ~2,8 GB total, o mecanismo de sobrescrição (FIFO) substitui artigos antigos por novos automaticamente.
                   </p>
                 </div>
               </div>
@@ -580,7 +621,7 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                 <div className="flex justify-between text-xs">
                   <span className="font-semibold text-white">Espaço Total Ocupado nos Bancos Realtime</span>
                   <span className="font-mono text-emerald-400 font-bold">
-                    {formatBytes(totalStorageUsed)} / 1.93 GB (Teto: 1,90 GB)
+                    {formatBytes(totalStorageUsed)} / 2.80 GB (Teto proporcional)
                   </span>
                 </div>
                 <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
@@ -591,23 +632,23 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                 </div>
               </div>
 
-              {/* Individual Storage Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Individual Storage Cards (3 instances) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <HardDrive className="w-4 h-4 text-blue-400" />
-                      <h4 className="font-bold text-white text-sm">Banco 1 • Armazenamento</h4>
+                      <h4 className="font-bold text-white text-sm">Banco 1 • legal-norm2</h4>
                     </div>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
-                      950 MB Teto
+                      0.9 GB Teto
                     </span>
                   </div>
                   <div>
                     <div className="flex justify-between text-xs mb-1">
                       <span className="text-slate-400">Espaço:</span>
                       <span className="font-mono text-white font-semibold">
-                        {formatBytes(routerState.primaryStorage.bytesUsed)} / 950 MB
+                        {formatBytes(routerState.primaryStorage.bytesUsed)} / 0.90 GB
                       </span>
                     </div>
                     <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -626,17 +667,17 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <HardDrive className="w-4 h-4 text-purple-400" />
-                      <h4 className="font-bold text-white text-sm">Banco 2 • Armazenamento</h4>
+                      <h4 className="font-bold text-white text-sm">Banco 2 • legal-norm3</h4>
                     </div>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
-                      950 MB Teto
+                      0.9 GB Teto
                     </span>
                   </div>
                   <div>
                     <div className="flex justify-between text-xs mb-1">
                       <span className="text-slate-400">Espaço:</span>
                       <span className="font-mono text-white font-semibold">
-                        {formatBytes(routerState.mirrorStorage.bytesUsed)} / 950 MB
+                        {formatBytes(routerState.mirrorStorage.bytesUsed)} / 0.90 GB
                       </span>
                     </div>
                     <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -650,11 +691,40 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                     Notícias armazenadas: <span className="font-mono text-white">{routerState.mirrorStorage.articleCount}</span>
                   </div>
                 </div>
+
+                <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <HardDrive className="w-4 h-4 text-amber-400" />
+                      <h4 className="font-bold text-white text-sm">Banco 3 • legal-norm1</h4>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800">
+                      0.9 GB Teto
+                    </span>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-400">Espaço:</span>
+                      <span className="font-mono text-white font-semibold">
+                        {formatBytes(routerState.tertiaryStorage.bytesUsed)} / 0.90 GB
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-amber-500 transition-all duration-500"
+                        style={{ width: `${Math.max(tertiaryStoragePct, 2)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    Notícias armazenadas: <span className="font-mono text-white">{routerState.tertiaryStorage.articleCount}</span>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
-          {/* TAB 3: MOTOR DE SOBRESCRIÇÃO (1,9 GB & 20 GB) */}
+          {/* TAB 3: MOTOR DE SOBRESCRIÇÃO (~2,8 GB & ~29,4 GB) */}
           {activeTab === "sobrescricao" && (
             <div className="space-y-6">
               <div className="p-5 rounded-2xl border border-blue-900/60 bg-blue-950/20 space-y-4">
@@ -665,7 +735,7 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                   <div>
                     <h4 className="font-bold text-white text-base">Mecanismo de Sobrescrição Automática</h4>
                     <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-                      Conforme solicitado, o site opera exclusivamente conectado aos dois bancos Realtime Database sem JSON estático. Para manter a estabilidade no limite de ~1,9 GB de espaço e ~20 GB de tráfego, o sistema executa sobrescrição automática (FIFO) eliminando as notícias e métricas mais antigas quando o limite se aproxima, mantendo o acervo sempre atualizado.
+                      Conforme solicitado, o site opera exclusivamente conectado aos três bancos Realtime Database sem JSON estático. Para manter a estabilidade no limite proporcional de ~2,8 GB de espaço (+0,9 GB) e ~29,4 GB de tráfego (+9,8 GB), o sistema executa sobrescrição automática (FIFO) eliminando as notícias e métricas mais antigas quando o limite se aproxima, mantendo o acervo sempre atualizado.
                     </p>
                   </div>
                 </div>

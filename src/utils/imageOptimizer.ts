@@ -300,10 +300,64 @@ export function getPostThumbnail(item: Partial<NewsItem>): string {
 }
 
 /**
+ * Deduplicates repeated images in news HTML content.
+ * Keeps only the first occurrence of an image with the same URL,
+ * while preserving all other distinct (non-repeated) images!
+ */
+export function deduplicateContentImages(html: string): string {
+  if (!html || typeof html !== "string") return "";
+
+  const seenUrls = new Set<string>();
+
+  // Helper to extract clean normalized image URL
+  const extractCleanUrl = (tag: string): string => {
+    const m = tag.match(/(?:src|data-src)=["']([^"']+)["']/i) || tag.match(/src=([^\s>]+)/i);
+    return m ? normalizeImageUrl(m[1]) : "";
+  };
+
+  // 1. Process figures wrapping images
+  let cleaned = html.replace(/<figure[^>]*>([\s\S]*?)<\/figure>/gi, (figureMatch, innerContent) => {
+    const imgMatch = innerContent.match(/<img[^>]+>/i);
+    if (!imgMatch) return figureMatch;
+
+    const normUrl = extractCleanUrl(imgMatch[0]);
+    if (!normUrl) return figureMatch;
+
+    if (seenUrls.has(normUrl)) {
+      // Repeated image URL: remove the duplicate figure
+      return "";
+    }
+    seenUrls.add(normUrl);
+    return figureMatch;
+  });
+
+  // 2. Process standalone <img> tags not inside figures
+  cleaned = cleaned.replace(/<img[^>]+>/gi, (imgTag) => {
+    const normUrl = extractCleanUrl(imgTag);
+    if (!normUrl) return imgTag;
+
+    if (seenUrls.has(normUrl)) {
+      // Repeated image URL: remove the duplicate img tag
+      return "";
+    }
+    seenUrls.add(normUrl);
+    return imgTag;
+  });
+
+  // 3. Clean any orphaned empty figures or consecutive line breaks
+  cleaned = cleaned
+    .replace(/<figure[^>]*>\s*<\/figure>/gi, "")
+    .replace(/(<br\s*\/?>\s*){3,}/gi, "<br /><br />");
+
+  return cleaned;
+}
+
+/**
  * Processes post HTML content:
+ * - Deduplicates repeated images with the same URL (keeps only 1 occurrence, keeps all distinct images)
  * - Removes "da redação" text/paragraphs
  * - Guarantees referrerpolicy="no-referrer" and loading="lazy" on all <img> tags
- * - NEVER deletes valid images from the news body!
+ * - Keeps all unique non-repeated images intact!
  */
 export function processPostContent(
   rawHtml?: string,
@@ -312,15 +366,17 @@ export function processPostContent(
 ): string {
   if (!rawHtml) return "";
 
-  // Remove "da redação" text, headers, and paragraphs
-  let html = rawHtml
+  // 1. Deduplicate repeated images by URL
+  let html = deduplicateContentImages(rawHtml);
+
+  // 2. Remove "da redação" text, headers, and paragraphs
+  html = html
     .replace(/<p[^>]*>\s*(da\s+redação|da\s+redacao|redação|redacao)\s*<\/p>/gi, "")
     .replace(/^(\s*da\s+redação[\s:-]*|\s*da\s+redacao[\s:-]*)/i, "")
     .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
     .replace(/\bRedação Norma Jurídica\b/gi, "Norma Jurídica");
 
-  // Ensure all <img> tags have referrerpolicy="no-referrer" and loading="lazy"
-  // Keep all images intact!
+  // 3. Ensure all remaining distinct <img> tags have referrerpolicy="no-referrer" and loading="lazy"
   html = html.replace(/<img([^>]+)>/gi, (match, attrs) => {
     let cleanAttrs = attrs;
     if (!cleanAttrs.includes("referrerpolicy")) {
@@ -332,7 +388,7 @@ export function processPostContent(
     return `<img${cleanAttrs}>`;
   });
 
-  // Clean empty figures or excessive breaks
+  // 4. Clean empty figures or excessive breaks
   html = html
     .replace(/<figure[^>]*>\s*<\/figure>/gi, "")
     .replace(/(<br\s*\/?>\s*){3,}/gi, "<br /><br />")
