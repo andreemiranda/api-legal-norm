@@ -4,18 +4,17 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/**/*.ts": {
-      "includeFiles": "src/data/**",
-      "maxDuration": 60,
-      "memory": 1024
-    },
-    "api/index.ts": {
+    "api/**": {
       "includeFiles": "src/data/**",
       "maxDuration": 60,
       "memory": 1024
     }
   },
   "rewrites": [
+    {
+      "source": "/api",
+      "destination": "/api/index"
+    },
     {
       "source": "/api/(.*)",
       "destination": "/api/index"

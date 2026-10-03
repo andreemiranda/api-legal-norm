@@ -221,7 +221,10 @@ export function initMediaCatalog(initialList?: MediaCatalogItem[]): void {
   for (const p of possiblePaths) {
     try {
       if (fs.existsSync(p)) {
-        const raw = fs.readFileSync(p, "utf-8");
+        const stats = fs.statSync(p);
+        if (!stats || stats.size <= 2) continue; // Skip 0-byte or empty files
+        const raw = fs.readFileSync(p, "utf-8").trim();
+        if (!raw || raw.length <= 2) continue;
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
           inMemoryCatalog = parsed;

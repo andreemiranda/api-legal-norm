@@ -269,16 +269,55 @@ function resolveDataFilePath(filename: string): string {
   for (const c of candidates) {
     try {
       if (fs.existsSync(c)) {
-        return c;
+        const stats = fs.statSync(c);
+        // Protection against 0-byte or corrupted empty files
+        if (stats && stats.size > 2) {
+          return c;
+        }
       }
     } catch {}
   }
   return path.join(process.cwd(), "src", "data", filename);
 }
 
+function safeReadJsonFile<T>(filePath: string, fallback: T): { data: T; size: number; mtimeMs: number } {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return { data: fallback, size: 0, mtimeMs: 0 };
+    }
+    const stats = fs.statSync(filePath);
+    if (!stats || stats.size <= 2) {
+      console.warn(`[JSON Database] Arquivo ${filePath} possui 0 bytes ou está corrompido (${stats?.size || 0} bytes). Usando fallback seguro.`);
+      return { data: fallback, size: stats?.size || 0, mtimeMs: stats?.mtimeMs || 0 };
+    }
+    const raw = fs.readFileSync(filePath, "utf-8").trim();
+    if (!raw || raw.length <= 2) {
+      return { data: fallback, size: stats.size, mtimeMs: stats.mtimeMs };
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      data: parsed !== null && parsed !== undefined ? parsed : fallback,
+      size: stats.size,
+      mtimeMs: stats.mtimeMs,
+    };
+  } catch (err: any) {
+    console.warn(`[JSON Database] Falha ao fazer parse de ${filePath} (${err.message}). Usando fallback seguro.`);
+    return { data: fallback, size: 0, mtimeMs: 0 };
+  }
+}
+
 function saveJsonDatabaseFile(filename: string, data: any): boolean {
-  const targetPath = resolveDataFilePath(filename);
+  if (data === null || data === undefined) {
+    console.warn(`[JSON Database] Tentativa de salvar dados nulos em ${filename}. Operação abortada para evitar arquivo de 0 bytes.`);
+    return false;
+  }
   const jsonStr = JSON.stringify(data, null, 2);
+  if (!jsonStr || jsonStr.trim().length <= 2) {
+    console.warn(`[JSON Database] JSON string vazia para ${filename}. Operação abortada para evitar arquivo de 0 bytes.`);
+    return false;
+  }
+
+  const targetPath = resolveDataFilePath(filename);
 
   // Attempt 1: write directly to targetPath
   try {
@@ -288,6 +327,9 @@ function saveJsonDatabaseFile(filename: string, data: any): boolean {
     }
     fs.writeFileSync(targetPath, jsonStr, "utf-8");
     const stats = fs.statSync(targetPath);
+    if (stats.size === 0) {
+      throw new Error(`Arquivo gerado com 0 bytes em ${targetPath}`);
+    }
     const key = Object.keys(DATABASE_FILENAMES).find((k) => DATABASE_FILENAMES[k] === filename) || filename;
     dbFileMeta.set(key, {
       key,
@@ -308,6 +350,9 @@ function saveJsonDatabaseFile(filename: string, data: any): boolean {
     const tmpPath = path.join("/tmp", filename);
     fs.writeFileSync(tmpPath, jsonStr, "utf-8");
     const stats = fs.statSync(tmpPath);
+    if (stats.size === 0) {
+      throw new Error(`Arquivo gerado com 0 bytes em ${tmpPath}`);
+    }
     const key = Object.keys(DATABASE_FILENAMES).find((k) => DATABASE_FILENAMES[k] === filename) || filename;
     dbFileMeta.set(key, {
       key,
@@ -403,32 +448,32 @@ function applyDefaultJusticaSources() {
 // Load initial non-news database files
 try {
   const catPath = resolveDataFilePath("categories.json");
-  if (fs.existsSync(catPath)) {
-    categoriesData = JSON.parse(fs.readFileSync(catPath, "utf-8"));
-    const st = fs.statSync(catPath);
-    dbFileMeta.set("categories", { key: "categories", filename: "categories.json", resolvedPath: catPath, mtimeMs: st.mtimeMs, size: st.size, lastLoaded: Date.now() });
+  const catRes = safeReadJsonFile<any[]>(catPath, []);
+  if (Array.isArray(catRes.data) && catRes.data.length > 0) {
+    categoriesData = catRes.data;
+    dbFileMeta.set("categories", { key: "categories", filename: "categories.json", resolvedPath: catPath, mtimeMs: catRes.mtimeMs, size: catRes.size, lastLoaded: Date.now() });
   }
 
   const srcPath = resolveDataFilePath("sources.json");
-  if (fs.existsSync(srcPath)) {
-    sourcesData = JSON.parse(fs.readFileSync(srcPath, "utf-8"));
-    const st = fs.statSync(srcPath);
-    dbFileMeta.set("sources", { key: "sources", filename: "sources.json", resolvedPath: srcPath, mtimeMs: st.mtimeMs, size: st.size, lastLoaded: Date.now() });
+  const srcRes = safeReadJsonFile<any[]>(srcPath, []);
+  if (Array.isArray(srcRes.data) && srcRes.data.length > 0) {
+    sourcesData = srcRes.data;
+    dbFileMeta.set("sources", { key: "sources", filename: "sources.json", resolvedPath: srcPath, mtimeMs: srcRes.mtimeMs, size: srcRes.size, lastLoaded: Date.now() });
   }
   applyDefaultJusticaSources();
 
   const mediaPath = resolveDataFilePath("mediaImages.json");
-  if (fs.existsSync(mediaPath)) {
-    mediaPoolData = JSON.parse(fs.readFileSync(mediaPath, "utf-8"));
-    const st = fs.statSync(mediaPath);
-    dbFileMeta.set("mediaImages", { key: "mediaImages", filename: "mediaImages.json", resolvedPath: mediaPath, mtimeMs: st.mtimeMs, size: st.size, lastLoaded: Date.now() });
+  const mediaRes = safeReadJsonFile<any[]>(mediaPath, []);
+  if (Array.isArray(mediaRes.data) && mediaRes.data.length > 0) {
+    mediaPoolData = mediaRes.data;
+    dbFileMeta.set("mediaImages", { key: "mediaImages", filename: "mediaImages.json", resolvedPath: mediaPath, mtimeMs: mediaRes.mtimeMs, size: mediaRes.size, lastLoaded: Date.now() });
   }
 
   const mediaChannelsPath = resolveDataFilePath("mediaChannels.json");
-  if (fs.existsSync(mediaChannelsPath)) {
-    mediaChannelsData = JSON.parse(fs.readFileSync(mediaChannelsPath, "utf-8"));
-    const st = fs.statSync(mediaChannelsPath);
-    dbFileMeta.set("mediaChannels", { key: "mediaChannels", filename: "mediaChannels.json", resolvedPath: mediaChannelsPath, mtimeMs: st.mtimeMs, size: st.size, lastLoaded: Date.now() });
+  const mediaChRes = safeReadJsonFile<any[]>(mediaChannelsPath, []);
+  if (Array.isArray(mediaChRes.data) && mediaChRes.data.length > 0) {
+    mediaChannelsData = mediaChRes.data;
+    dbFileMeta.set("mediaChannels", { key: "mediaChannels", filename: "mediaChannels.json", resolvedPath: mediaChannelsPath, mtimeMs: mediaChRes.mtimeMs, size: mediaChRes.size, lastLoaded: Date.now() });
   }
 } catch (err) {
   console.error("Error loading initial data files:", err);
@@ -440,7 +485,9 @@ const mediaCatPath = resolveDataFilePath("mediaCatalog.json");
 if (fs.existsSync(mediaCatPath)) {
   try {
     const st = fs.statSync(mediaCatPath);
-    dbFileMeta.set("mediaCatalog", { key: "mediaCatalog", filename: "mediaCatalog.json", resolvedPath: mediaCatPath, mtimeMs: st.mtimeMs, size: st.size, lastLoaded: Date.now() });
+    if (st && st.size > 2) {
+      dbFileMeta.set("mediaCatalog", { key: "mediaCatalog", filename: "mediaCatalog.json", resolvedPath: mediaCatPath, mtimeMs: st.mtimeMs, size: st.size, lastLoaded: Date.now() });
+    }
   } catch {}
 }
 
@@ -591,13 +638,17 @@ function reloadDatabaseFile(key: string, force = false): boolean {
       return false;
     }
     const stats = fs.statSync(resolvedPath);
+    if (!stats || stats.size <= 2) {
+      console.warn(`[JSON Database] Arquivo ${filename} em ${resolvedPath} possui 0 bytes ou está corrompido (${stats?.size || 0} bytes). Ignorando para proteger memória.`);
+      return false;
+    }
     const prev = dbFileMeta.get(key);
     if (!force && prev && prev.mtimeMs === stats.mtimeMs && prev.size === stats.size) {
       return false; // No modification detected
     }
 
-    const raw = fs.readFileSync(resolvedPath, "utf-8");
-    const parsed = JSON.parse(raw);
+    const fileResult = safeReadJsonFile<any[]>(resolvedPath, []);
+    const parsed = fileResult.data;
 
     if (key === "categories" && Array.isArray(parsed)) {
       categoriesData = parsed;

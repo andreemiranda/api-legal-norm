@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && mkdir -p dist/data && (cp src/data/*.json dist/data/ 2>/dev/null || true)",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && node -e \"const fs=require('fs'),p=require('path');fs.mkdirSync('dist/data',{recursive:true});if(fs.existsSync('src/data'))fs.readdirSync('src/data').filter(f=>f.endsWith('.json')).forEach(f=>{const s=fs.statSync(p.join('src/data',f));if(s.size>2)fs.copyFileSync(p.join('src/data',f),p.join('dist/data',f));});\"",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
