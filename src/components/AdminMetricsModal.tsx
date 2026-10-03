@@ -125,9 +125,6 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
     }
   };
 
-  const [gateEmail, setGateEmail] = useState("");
-  const [showGateEmailInput, setShowGateEmailInput] = useState(false);
-
   const handleGoogleGateLogin = async () => {
     setLoginError(null);
     setLoginLoading(true);
@@ -137,38 +134,11 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
         if (!res.isAdmin) {
           setLoginError("Esta Conta Google não possui privilégios de administrador.");
         }
-      } else if (res.requiresAccountSelection) {
-        setShowGateEmailInput(true);
       } else {
         setLoginError(res.error || "Não foi possível conectar com o Google no momento.");
       }
-    } catch (err: any) {
-      setShowGateEmailInput(true);
-    } finally {
-      setLoginLoading(false);
-    }
-  };
-
-  const handleGateAccountSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const clean = gateEmail.trim().toLowerCase();
-    if (!clean || !clean.includes("@")) {
-      setLoginError("Por favor, informe um endereço de e-mail do Google válido (@gmail.com).");
-      return;
-    }
-    setLoginError(null);
-    setLoginLoading(true);
-    try {
-      const res = await firebaseAuthService.signInWithGoogleAccount({ email: clean });
-      if (res.success) {
-        if (!res.isAdmin) {
-          setLoginError(`A conta ${clean} não está autorizada como administrador.`);
-        }
-      } else {
-        setLoginError(res.error || "Falha ao conectar Conta Google.");
-      }
     } catch {
-      setLoginError("Falha ao conectar Conta Google.");
+      setLoginError("Erro ao conectar com a Conta Google.");
     } finally {
       setLoginLoading(false);
     }
@@ -280,32 +250,6 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                 </svg>
                 <span>{loginLoading ? "Conectando ao Google..." : "Entrar com o Google"}</span>
               </button>
-
-              {showGateEmailInput && (
-                <form onSubmit={handleGateAccountSubmit} className="pt-2 space-y-2 animate-fade-in">
-                  <label className="block text-[11px] text-slate-400 text-left font-medium">
-                    Informe seu e-mail Google de Administrador:
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="email"
-                      value={gateEmail}
-                      onChange={(e) => setGateEmail(e.target.value)}
-                      placeholder="administrador@gmail.com"
-                      autoFocus
-                      required
-                      className="flex-1 px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <button
-                      type="submit"
-                      disabled={loginLoading || !gateEmail}
-                      className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
-                    >
-                      Acessar
-                    </button>
-                  </div>
-                </form>
-              )}
             </div>
           )}
 

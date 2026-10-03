@@ -51,15 +51,15 @@ const savedPrimary = getSavedConfig("nj_firebase_primary");
 const savedMirror = getSavedConfig("nj_firebase_mirror");
 const savedTertiary = getSavedConfig("nj_firebase_tertiary");
 
-// 1. Primary Firebase Project Config (legal-norm2)
+// 1. Primary Firebase Project Config (legal-norm2 - Projeto 1 Principal)
 export const primaryConfig: FirebaseInstanceConfig = {
-  apiKey: savedPrimary?.apiKey || getEnv("NEXT_PUBLIC_FIREBASE_API_KEY", "VITE_FIREBASE_API_KEY", "AIzaSyCAQ6UdqNC3_spKkjH79Rf7s9SwBMN98Fw"),
-  authDomain: savedPrimary?.authDomain || getEnv("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN", "VITE_FIREBASE_AUTH_DOMAIN", "legal-norm2.firebaseapp.com"),
-  databaseURL: savedPrimary?.databaseURL || getEnv("NEXT_PUBLIC_FIREBASE_DATABASE_URL", "VITE_FIREBASE_DATABASE_URL", "https://legal-norm2-default-rtdb.firebaseio.com"),
-  projectId: savedPrimary?.projectId || getEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "VITE_FIREBASE_PROJECT_ID", "legal-norm2"),
-  storageBucket: savedPrimary?.storageBucket || getEnv("NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET", "VITE_FIREBASE_STORAGE_BUCKET", "legal-norm2.firebasestorage.app"),
-  messagingSenderId: savedPrimary?.messagingSenderId || getEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", "VITE_FIREBASE_MESSAGING_SENDER_ID", "878021514659"),
-  appId: savedPrimary?.appId || getEnv("NEXT_PUBLIC_FIREBASE_APP_ID", "VITE_FIREBASE_APP_ID", "1:878021514659:web:966a382c6c7ffeb6a9f616"),
+  apiKey: "AIzaSyCAQ6UdqNC3_spKkjH79Rf7s9SwBMN98Fw",
+  authDomain: "legal-norm2.firebaseapp.com",
+  databaseURL: "https://legal-norm2-default-rtdb.firebaseio.com",
+  projectId: "legal-norm2",
+  storageBucket: "legal-norm2.firebasestorage.app",
+  messagingSenderId: "878021514659",
+  appId: "1:878021514659:web:966a382c6c7ffeb6a9f616",
 };
 
 // 2. Secondary / Mirror Firebase Project Config (legal-norm3)
