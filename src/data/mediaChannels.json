@@ -9,7 +9,7 @@
     "mediaUrl": "https://clebertoledo.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/383841537673882"
+        "href": "https://news-sources-api.vercel.app/api/images/383841537673882"
       }
     }
   },
@@ -23,7 +23,7 @@
     "mediaUrl": "https://infoeducacao.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/893766336492326"
+        "href": "https://news-sources-api.vercel.app/api/images/893766336492326"
       }
     }
   },
@@ -37,7 +37,7 @@
     "mediaUrl": "https://www.nacaojuridica.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/119282349536522"
+        "href": "https://news-sources-api.vercel.app/api/images/119282349536522"
       }
     }
   },
@@ -51,7 +51,7 @@
     "mediaUrl": "https://atitudeto.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/138781293968447"
+        "href": "https://news-sources-api.vercel.app/api/images/138781293968447"
       }
     }
   },
@@ -65,7 +65,7 @@
     "mediaUrl": "https://pmwnoticias.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/912241216478934"
+        "href": "https://news-sources-api.vercel.app/api/images/912241216478934"
       }
     }
   },
@@ -79,7 +79,7 @@
     "mediaUrl": "https://admin.cnnbrasil.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/119319283249741"
+        "href": "https://news-sources-api.vercel.app/api/images/119319283249741"
       }
     }
   },
@@ -93,7 +93,7 @@
     "mediaUrl": "https://gazetadocerrado.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/673832516549963"
+        "href": "https://news-sources-api.vercel.app/api/images/673832516549963"
       }
     }
   },
@@ -107,7 +107,7 @@
     "mediaUrl": "https://minhaseconomias.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/859131619791157"
+        "href": "https://news-sources-api.vercel.app/api/images/859131619791157"
       }
     }
   },
@@ -121,7 +121,7 @@
     "mediaUrl": "https://www.gazetaesportiva.com/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/331649958919499"
+        "href": "https://news-sources-api.vercel.app/api/images/331649958919499"
       }
     }
   },
@@ -135,7 +135,7 @@
     "mediaUrl": "https://vocesa.abril.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/263228425877841"
+        "href": "https://news-sources-api.vercel.app/api/images/263228425877841"
       }
     }
   },
@@ -149,7 +149,7 @@
     "mediaUrl": "https://classic.exame.com/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/914761953262293"
+        "href": "https://news-sources-api.vercel.app/api/images/914761953262293"
       }
     }
   },
@@ -163,7 +163,7 @@
     "mediaUrl": "https://www.palmeiras.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/484292183833791"
+        "href": "https://news-sources-api.vercel.app/api/images/484292183833791"
       }
     }
   },
@@ -177,7 +177,7 @@
     "mediaUrl": "https://opiniaogoias.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/699842191757118"
+        "href": "https://news-sources-api.vercel.app/api/images/699842191757118"
       }
     }
   },
@@ -191,7 +191,7 @@
     "mediaUrl": "https://portalnoticiasgoias.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/431642583394448"
+        "href": "https://news-sources-api.vercel.app/api/images/431642583394448"
       }
     }
   },
@@ -205,7 +205,7 @@
     "mediaUrl": "https://diariodegoias.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/232452491983424"
+        "href": "https://news-sources-api.vercel.app/api/images/232452491983424"
       }
     }
   },
@@ -219,7 +219,7 @@
     "mediaUrl": "https://conjur.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/382992878388555"
+        "href": "https://news-sources-api.vercel.app/api/images/382992878388555"
       }
     }
   },
@@ -233,7 +233,7 @@
     "mediaUrl": "https://meusitejuridico.editorajuspodivm.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/912895989897239"
+        "href": "https://news-sources-api.vercel.app/api/images/912895989897239"
       }
     }
   },
@@ -247,7 +247,7 @@
     "mediaUrl": "https://inw.org.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/552434895747434"
+        "href": "https://news-sources-api.vercel.app/api/images/552434895747434"
       }
     }
   },
@@ -261,7 +261,7 @@
     "mediaUrl": "https://www.santacatarinaempauta.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/363855955883429"
+        "href": "https://news-sources-api.vercel.app/api/images/363855955883429"
       }
     }
   },
@@ -275,7 +275,7 @@
     "mediaUrl": "https://www.vozdobico.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/214239935451987"
+        "href": "https://news-sources-api.vercel.app/api/images/214239935451987"
       }
     }
   },
@@ -289,7 +289,7 @@
     "mediaUrl": "https://portaldobico.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/134352574919451"
+        "href": "https://news-sources-api.vercel.app/api/images/134352574919451"
       }
     }
   },
@@ -303,7 +303,7 @@
     "mediaUrl": "https://folhadobico.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/332328244549349"
+        "href": "https://news-sources-api.vercel.app/api/images/332328244549349"
       }
     }
   },
@@ -317,7 +317,7 @@
     "mediaUrl": "https://bico24horas.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/663841226123673"
+        "href": "https://news-sources-api.vercel.app/api/images/663841226123673"
       }
     }
   },
@@ -331,7 +331,7 @@
     "mediaUrl": "https://guaraiense.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/239261469443631"
+        "href": "https://news-sources-api.vercel.app/api/images/239261469443631"
       }
     }
   },
@@ -345,7 +345,7 @@
     "mediaUrl": "https://jornalobico.com.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/172626478241883"
+        "href": "https://news-sources-api.vercel.app/api/images/172626478241883"
       }
     }
   },
@@ -359,7 +359,7 @@
     "mediaUrl": "https://ludopedio.org.br/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/151892189935957"
+        "href": "https://news-sources-api.vercel.app/api/images/151892189935957"
       }
     }
   },
@@ -373,7 +373,7 @@
     "mediaUrl": "https://www.folhadestra.com/wp-json/wp/v2/media",
     "_links": {
       "self": {
-        "href": "https://api-news-media.netlify.app/api/images/432221191486213"
+        "href": "https://news-sources-api.vercel.app/api/images/432221191486213"
       }
     }
   }

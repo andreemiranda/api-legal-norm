@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { NewsSource } from "../types";
 import { X, Search, ExternalLink, Globe, Layers, Filter, CheckCircle2, Copy, Check, Image as ImageIcon } from "lucide-react";
-import { NEWS_MEDIA_ENDPOINTS } from "../services/newsApiConfig";
+import { NEWS_MEDIA_ENDPOINTS, NEWS_API_CONFIG } from "../services/newsApiConfig";
 
 interface SourcesModalProps {
   isOpen: boolean;
@@ -29,12 +29,13 @@ export const SourcesModal: React.FC<SourcesModalProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const apiBase = NEWS_API_CONFIG.baseUrl || "https://news-sources-api.vercel.app";
   const categories = Array.from(new Set(sources.map((s) => s.category))).sort();
 
   const filteredSources = sources.filter((s) => {
-    const endpointUrl = `https://api-news-media.netlify.app/api/news/${s.id}`;
+    const endpointUrl = `${apiBase}/api/news/${s.id}`;
     const matchesSearch =
-      "https://api-news-media.netlify.app".includes(searchTerm.toLowerCase()) ||
+      apiBase.includes(searchTerm.toLowerCase()) ||
       s.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
       String(s.id).includes(searchTerm) ||
       endpointUrl.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -71,7 +72,7 @@ export const SourcesModal: React.FC<SourcesModalProps> = ({
                 Fontes e Endpoints Integrados
               </h3>
               <p className="text-xs text-blue-300/70">
-                Rotas de API ativas e catalogadas via <span className="font-mono text-blue-200">https://api-news-media.netlify.app</span>
+                Rotas de API ativas e catalogadas via <span className="font-mono text-blue-200">{apiBase}</span>
               </p>
             </div>
           </div>
@@ -161,7 +162,7 @@ export const SourcesModal: React.FC<SourcesModalProps> = ({
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {filteredSources.map((s, idx) => {
-                  const endpointUrl = `https://api-news-media.netlify.app/api/news/${s.id}`;
+                  const endpointUrl = `${apiBase}/api/news/${s.id}`;
                   const isCopied = copiedId === s.id;
 
                   return (
@@ -182,7 +183,7 @@ export const SourcesModal: React.FC<SourcesModalProps> = ({
                         <h4 className="text-sm font-semibold text-white flex items-center gap-1.5 mb-1.5">
                           <Globe className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                           <span className="truncate font-mono text-xs text-blue-200">
-                            https://api-news-media.netlify.app
+                            {apiBase}
                           </span>
                         </h4>
 
@@ -339,7 +340,7 @@ export const SourcesModal: React.FC<SourcesModalProps> = ({
         {/* Footer */}
         <div className="p-4 border-t border-slate-800 bg-slate-950 flex items-center justify-between text-xs text-slate-400">
           <span>
-            API News Media: <code className="text-blue-300 font-mono">https://api-news-media.netlify.app</code>
+            API News Media: <code className="text-blue-300 font-mono">{apiBase}</code>
           </span>
           <button
             onClick={onClose}

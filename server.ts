@@ -24,16 +24,15 @@ if (fs.existsSync(path.join(process.cwd(), ".env"))) {
 }
 
 // Default News API configurations directly in code (no manual user input required)
-process.env.NEWS_API_BASE_URL = process.env.NEWS_API_BASE_URL || "https://api-news-media.netlify.app";
+process.env.NEWS_API_BASE_URL = process.env.NEWS_API_BASE_URL || "https://news-sources-api.vercel.app";
 process.env.NEWS_API_KEY = process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd";
 
 const app = express();
 app.set("trust proxy", 1); // Confia no proxy reverso do Cloud Run (Evita erro do express-rate-limit com X-Forwarded-For)
 
-// Configuração do PORT: no Render.com a porta é fornecida via process.env.PORT (ex: 10000).
-// No ambiente AI Studio / dev local, RENDER não está definido, mantendo estritamente 3000.
-const isRender = process.env.RENDER === "true" || Boolean(process.env.RENDER_SERVICE_ID);
-const PORT = isRender && process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+// Configuração do PORT: no ambiente AI Studio / dev local, estritamente 3000.
+// Em produção, respeita process.env.PORT se fornecido pelo runtime de hospedagem.
+const PORT = process.env.NODE_ENV === "production" && process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Security Middleware
 app.use(helmet({
@@ -49,6 +48,8 @@ app.use(helmet({
         "wss:",
         "https://*.firebaseio.com",
         "https://*.googleapis.com",
+        "https://news-sources-api.vercel.app",
+        "https://*.vercel.app",
         "https://api-news-media.netlify.app",
         "https://pagead2.googlesyndication.com",
         "https://googleads.g.doubleclick.net",
@@ -89,6 +90,7 @@ app.use(cors({
       origin.includes("localhost") ||
       origin.includes("127.0.0.1") ||
       origin.includes("normajuridica") ||
+      origin.includes("vercel.app") ||
       origin.includes("netlify.app")
     ) {
       return callback(null, true);
@@ -374,41 +376,41 @@ const defaultJusticaSources = [
   {
     id: 528374619283746,
     category: "Justiça",
-    site: "https://api-news-media.netlify.app/api/news/528374619283746",
+    site: "https://news-sources-api.vercel.app/api/news/528374619283746",
     type: "wp-api",
-    url: "https://api-news-media.netlify.app/api/news/528374619283746",
+    url: "https://news-sources-api.vercel.app/api/news/528374619283746",
     active: true,
-    _links: { self: { href: "https://api-news-media.netlify.app/api/news/528374619283746" } },
+    _links: { self: { href: "https://news-sources-api.vercel.app/api/news/528374619283746" } },
     originalSite: "normajuridica.com"
   },
   {
     id: 194728365019283,
     category: "Justiça",
-    site: "https://api-news-media.netlify.app/api/news/194728365019283",
+    site: "https://news-sources-api.vercel.app/api/news/194728365019283",
     type: "wp-api",
-    url: "https://api-news-media.netlify.app/api/news/194728365019283",
+    url: "https://news-sources-api.vercel.app/api/news/194728365019283",
     active: true,
-    _links: { self: { href: "https://api-news-media.netlify.app/api/news/194728365019283" } },
+    _links: { self: { href: "https://news-sources-api.vercel.app/api/news/194728365019283" } },
     originalSite: "normajuridica.com"
   },
   {
     id: 736482910573649,
     category: "Justiça",
-    site: "https://api-news-media.netlify.app/api/news/736482910573649",
+    site: "https://news-sources-api.vercel.app/api/news/736482910573649",
     type: "wp-api",
-    url: "https://api-news-media.netlify.app/api/news/736482910573649",
+    url: "https://news-sources-api.vercel.app/api/news/736482910573649",
     active: true,
-    _links: { self: { href: "https://api-news-media.netlify.app/api/news/736482910573649" } },
+    _links: { self: { href: "https://news-sources-api.vercel.app/api/news/736482910573649" } },
     originalSite: "normajuridica.com"
   },
   {
     id: 813947265038471,
     category: "Justiça",
-    site: "https://api-news-media.netlify.app/api/news/813947265038471",
+    site: "https://news-sources-api.vercel.app/api/news/813947265038471",
     type: "wp-api",
-    url: "https://api-news-media.netlify.app/api/news/813947265038471",
+    url: "https://news-sources-api.vercel.app/api/news/813947265038471",
     active: true,
-    _links: { self: { href: "https://api-news-media.netlify.app/api/news/813947265038471" } },
+    _links: { self: { href: "https://news-sources-api.vercel.app/api/news/813947265038471" } },
     originalSite: "normajuridica.com"
   }
 ];
@@ -427,7 +429,7 @@ function applyDefaultJusticaSources() {
       const idx = match[1];
       const sourceId = process.env[envKey];
       const category = process.env[`NEWS_API_SOURCE_${idx}_CATEGORY`] || "Justiça";
-      const site = process.env[`NEWS_API_SOURCE_${idx}_SITE`] || `https://api-news-media.netlify.app/api/news/${sourceId}`;
+      const site = process.env[`NEWS_API_SOURCE_${idx}_SITE`] || `https://news-sources-api.vercel.app/api/news/${sourceId}`;
       const endpoint = process.env[`NEWS_API_SOURCE_${idx}_ENDPOINT`] || `/api/news/${sourceId}`;
       if (sourceId && !sourcesData.some((s) => String(s.id) === String(sourceId))) {
         sourcesData.push({
@@ -435,9 +437,9 @@ function applyDefaultJusticaSources() {
           category,
           site,
           type: "wp-api",
-          url: site.startsWith("http") ? site : `https://api-news-media.netlify.app${endpoint}`,
+          url: site.startsWith("http") ? site : `https://news-sources-api.vercel.app${endpoint}`,
           active: true,
-          _links: { self: { href: site.startsWith("http") ? site : `https://api-news-media.netlify.app${endpoint}` } },
+          _links: { self: { href: site.startsWith("http") ? site : `https://news-sources-api.vercel.app${endpoint}` } },
           originalSite: "normajuridica.com"
         });
       }
@@ -495,7 +497,7 @@ if (fs.existsSync(mediaCatPath)) {
 const RTDB_PRIMARY = "https://legal-norm2-default-rtdb.firebaseio.com/news.json";
 const RTDB_MIRROR = "https://legal-norm3-default-rtdb.firebaseio.com/news.json";
 const RTDB_TERTIARY = "https://legal-norm1-default-rtdb.firebaseio.com/news.json";
-const UPSTREAM_API = "https://api-news-media.netlify.app/api/news";
+const UPSTREAM_API = (process.env.NEWS_API_BASE_URL || "https://news-sources-api.vercel.app") + "/api/news";
 
 const STORAGE_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_STORAGE_LIMIT_BYTES || process.env.FIREBASE_STORAGE_LIMIT_BYTES || "3006477107", 10);
 const TRAFFIC_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_TRAFFIC_LIMIT_BYTES || process.env.FIREBASE_TRAFFIC_LIMIT_BYTES || "31568007987", 10);
@@ -621,7 +623,7 @@ setInterval(() => {
 }, 25000);
 
 // Upstream News API Configuration & Realtime Sync Engine (30-minute interval)
-const NEWS_API_BASE_URL = process.env.NEWS_API_BASE_URL || "https://api-news-media.netlify.app";
+const NEWS_API_BASE_URL = process.env.NEWS_API_BASE_URL || "https://news-sources-api.vercel.app";
 const NEWS_API_KEY = process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd";
 const SYNC_INTERVAL_MS = 30 * 60 * 1000; // 30 minutos
 
@@ -1552,7 +1554,7 @@ app.get("/api/images", async (_req, res) => {
   // Try upstream
   try {
     const upstream = await fetch(
-      `https://api-news-media.netlify.app/api/images?api_key=${process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd"}`,
+      `${NEWS_API_BASE_URL}/api/images?api_key=${process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd"}`,
       { signal: AbortSignal.timeout(5000) }
     );
     if (upstream.ok) {
@@ -1570,7 +1572,7 @@ app.get("/api/images/:id", async (req, res) => {
   // 1. Try upstream directly with the synchronized source ID
   try {
     const upstream = await fetch(
-      `https://api-news-media.netlify.app/api/images/${encodeURIComponent(idStr)}?api_key=${process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd"}&limit=15`,
+      `${NEWS_API_BASE_URL}/api/images/${encodeURIComponent(idStr)}?api_key=${process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd"}&limit=15`,
       { signal: AbortSignal.timeout(5000) }
     );
     if (upstream.ok) {
@@ -2480,11 +2482,13 @@ app.get("/sitemap.xsl", (_req, res) => {
 async function startServer() {
   const httpServer = http.createServer(app);
 
-  if (process.env.NODE_ENV !== "production") {
+  const isDev = process.env.NODE_ENV !== "production" || process.env.npm_lifecycle_event === "dev";
+  if (isDev) {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
         hmr: process.env.DISABLE_HMR === "true" ? false : { server: httpServer },
+        allowedHosts: true,
       },
       appType: "spa",
     });
