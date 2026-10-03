@@ -160,13 +160,13 @@ export const Header: React.FC<HeaderProps> = ({
 
             <span className="text-slate-600">|</span>
 
-            {/* Authentication: 'Entrar' button or User Profile with Google Avatar when authenticated */}
+            {/* Authentication: 'Entrar com o Google' button or User Profile with Google Avatar when authenticated */}
             {!authState.isAuthenticated ? (
               <button
                 id="header-login-button"
                 onClick={() => setShowAuthModal(true)}
                 className="flex items-center gap-2 px-3 py-1 rounded-full bg-white hover:bg-slate-100 text-slate-800 dark:bg-slate-800 dark:hover:bg-slate-750 dark:text-white font-medium text-xs transition-all shadow-sm active:scale-95 cursor-pointer border border-slate-300 dark:border-slate-700"
-                title="Entrar com o Google ou Administrador"
+                title="Entrar com o Google"
               >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
                   <path
@@ -186,95 +186,111 @@ export const Header: React.FC<HeaderProps> = ({
                     fill="#EA4335"
                   />
                 </svg>
-                <span>Entrar</span>
+                <span>Entrar com o Google</span>
               </button>
             ) : (
-              <div className="relative flex items-center gap-2">
-                <div
-                  id="user-profile-header-pill"
-                  onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-slate-800/90 hover:bg-slate-700 text-white border border-blue-500/40 cursor-pointer transition-all shadow-sm"
-                  title="Menu da Conta Google"
-                >
-                  {authState.photoURL ? (
-                    <img
-                      src={authState.photoURL}
-                      alt={authState.displayName || "Usuário"}
-                      className="w-6 h-6 rounded-full object-cover border-1.5 border-blue-400 shrink-0"
-                    />
-                  ) : (
-                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold shrink-0">
-                      {(authState.displayName || "U")[0].toUpperCase()}
-                    </div>
-                  )}
-                  <span className="font-medium text-xs max-w-[110px] truncate text-white">
-                    {authState.displayName}
-                  </span>
-                  <ChevronDown className="w-3 h-3 text-slate-400" />
-                </div>
+              <div className="flex items-center gap-2">
+                {/* Exclusivo para Administrador: Acesso direto e visível à página de Métricas */}
+                {authState.isAdmin && onOpenMetrics && (
+                  <button
+                    id="header-admin-metrics-direct-btn"
+                    onClick={onOpenMetrics}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-900/70 hover:bg-blue-800 text-blue-200 hover:text-white border border-blue-500/50 text-[11px] font-semibold transition-all cursor-pointer shadow-sm active:scale-95"
+                    title="Acessar Painel de Métricas & Tráfego"
+                  >
+                    <Activity className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Métricas</span>
+                  </button>
+                )}
 
-                {/* Dropdown Menu */}
-                {userMenuOpen && (
-                  <div className="absolute right-0 top-9 z-50 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-blue-900/60 rounded-2xl shadow-2xl p-2.5 text-xs text-slate-800 dark:text-slate-200 animate-fade-in">
-                    <div className="flex items-center gap-3 p-2.5 border-b border-slate-100 dark:border-slate-800 mb-1.5">
-                      {authState.photoURL ? (
-                        <img
-                          src={authState.photoURL}
-                          alt={authState.displayName || "Usuário"}
-                          className="w-10 h-10 rounded-full object-cover border border-blue-400 shrink-0"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold shrink-0">
-                          {(authState.displayName || "U")[0].toUpperCase()}
-                        </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-slate-900 dark:text-white truncate">
-                          {authState.displayName}
-                        </p>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                          {authState.email}
-                        </p>
-                        <span
-                          className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
-                            authState.isAdmin
-                              ? "bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 border border-blue-300 dark:border-blue-700/50"
-                              : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300 dark:border-slate-700"
-                          }`}
-                        >
-                          {authState.isAdmin ? "Administrador" : "Leitor"}
-                        </span>
+                {/* Avatar do Google no canto superior direito para TODOS os usuários autenticados */}
+                <div className="relative">
+                  <div
+                    id="user-profile-header-pill"
+                    onClick={() => setUserMenuOpen(!userMenuOpen)}
+                    className="flex items-center gap-2 px-2 py-0.5 rounded-full bg-slate-800/90 hover:bg-slate-700 text-white border border-blue-500/40 cursor-pointer transition-all shadow-sm"
+                    title="Conta Google"
+                  >
+                    {authState.photoURL ? (
+                      <img
+                        src={authState.photoURL}
+                        alt={authState.displayName || "Usuário"}
+                        className="w-6 h-6 rounded-full object-cover border-1.5 border-blue-400 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold shrink-0">
+                        {(authState.displayName || "U")[0].toUpperCase()}
                       </div>
-                    </div>
+                    )}
+                    <span className="font-medium text-xs max-w-[110px] truncate text-white">
+                      {authState.displayName}
+                    </span>
+                    <ChevronDown className="w-3 h-3 text-slate-400" />
+                  </div>
 
-                    {/* Exclusivo para administradores: Painel de Métricas & Tráfego */}
-                    {authState.isAdmin && onOpenMetrics && (
+                  {/* Dropdown Menu */}
+                  {userMenuOpen && (
+                    <div className="absolute right-0 top-9 z-50 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-blue-900/60 rounded-2xl shadow-2xl p-2.5 text-xs text-slate-800 dark:text-slate-200 animate-fade-in">
+                      <div className="flex items-center gap-3 p-2.5 border-b border-slate-100 dark:border-slate-800 mb-1.5">
+                        {authState.photoURL ? (
+                          <img
+                            src={authState.photoURL}
+                            alt={authState.displayName || "Usuário"}
+                            className="w-10 h-10 rounded-full object-cover border border-blue-400 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold shrink-0">
+                            {(authState.displayName || "U")[0].toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-slate-900 dark:text-white truncate">
+                            {authState.displayName}
+                          </p>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                            {authState.email}
+                          </p>
+                          <span
+                            className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                              authState.isAdmin
+                                ? "bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 border border-blue-300 dark:border-blue-700/50"
+                                : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-300 dark:border-slate-700"
+                            }`}
+                          >
+                            {authState.isAdmin ? "Administrador" : "Leitor"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Exclusivo para administradores: Painel de Métricas & Tráfego */}
+                      {authState.isAdmin && onOpenMetrics && (
+                        <button
+                          id="user-menu-metrics-btn"
+                          onClick={() => {
+                            setUserMenuOpen(false);
+                            onOpenMetrics();
+                          }}
+                          className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2.5 text-blue-600 dark:text-blue-400 font-medium transition-colors cursor-pointer"
+                        >
+                          <Activity className="w-4 h-4 text-emerald-500" />
+                          <span>Página de Métricas & Tráfego</span>
+                        </button>
+                      )}
+
                       <button
-                        id="user-menu-metrics-btn"
+                        id="user-menu-signout-btn"
                         onClick={() => {
                           setUserMenuOpen(false);
-                          onOpenMetrics();
+                          firebaseAuthService.signOut();
                         }}
-                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2.5 text-blue-600 dark:text-blue-400 font-medium transition-colors"
+                        className="w-full text-left px-3 py-2 rounded-xl hover:bg-red-50 dark:hover:bg-red-950/40 text-red-600 dark:text-red-400 flex items-center gap-2.5 transition-colors mt-1 cursor-pointer"
                       >
-                        <Activity className="w-4 h-4 text-emerald-500" />
-                        <span>Painel de Métricas & Tráfego</span>
+                        <LogOut className="w-4 h-4" />
+                        <span>Sair da Conta</span>
                       </button>
-                    )}
-
-                    <button
-                      id="user-menu-signout-btn"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        firebaseAuthService.signOut();
-                      }}
-                      className="w-full text-left px-3 py-2 rounded-xl hover:bg-red-50 dark:hover:bg-red-950/40 text-red-600 dark:text-red-400 flex items-center gap-2.5 transition-colors mt-1"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      <span>Sair da Conta</span>
-                    </button>
-                  </div>
-                )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

@@ -116,7 +116,7 @@ function MainPortal() {
         fetch("/api/monitoring/sync", { method: "POST" }).catch(() => {});
       }
 
-      const newsRes = await fetch("/api/news?all=true");
+      const newsRes = await fetch(`/api/news?all=true&_t=${Date.now()}`);
       if (newsRes.ok) {
         const newsJson = await newsRes.json();
         if (newsJson.success && Array.isArray(newsJson.data) && newsJson.data.length > 0) {
@@ -125,7 +125,7 @@ function MainPortal() {
         }
       }
       // Hybrid fallback
-      const hybridResult = await trafficRouter.fetchNews();
+      const hybridResult = await trafficRouter.fetchNews(true);
       if (hybridResult && hybridResult.news && hybridResult.news.length > 0) {
         setNews(sortNewsChronological(deduplicateNews(hybridResult.news)));
       }

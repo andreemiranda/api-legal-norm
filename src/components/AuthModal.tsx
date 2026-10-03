@@ -1,6 +1,6 @@
-import React, { useState } from "react";
-import { firebaseAuthService, isRunningInIframe, getAdminEmailsList } from "../services/firebaseAuthService";
-import { X, Shield, AlertCircle, CheckCircle2, ExternalLink, ArrowRight } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { firebaseAuthService } from "../services/firebaseAuthService";
+import { X, Shield, AlertCircle, CheckCircle2, ArrowRight } from "lucide-react";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -11,85 +11,152 @@ interface AuthModalProps {
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMetrics }) => {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [customEmail, setCustomEmail] = useState("");
-  const [showEmailInput, setShowEmailInput] = useState(false);
+  const [showEmailPrompt, setShowEmailPrompt] = useState(false);
+  const [googleEmail, setGoogleEmail] = useState("");
+  const googleBtnContainerRef = useRef<HTMLDivElement>(null);
+
+  // Initialize official Google Identity Services button if available
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const initGis = () => {
+      const g = (window as any)?.google;
+      if (g?.accounts?.id && googleBtnContainerRef.current) {
+        try {
+          g.accounts.id.initialize({
+            client_id: "878021514659-girlu7mhvr9n0r7jqt0k7grrk0eossoq.apps.googleusercontent.com",
+            callback: async (response: any) => {
+              if (response?.credential) {
+                setLoading(true);
+                setErrorMessage(null);
+                try {
+                  // Decode JWT to extract user details
+                  const base64Url = response.credential.split(".")[1];
+                  const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+                  const jsonPayload = decodeURIComponent(
+                    atob(base64)
+                      .split("")
+                      .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+                      .join("")
+                  );
+                  const profile = JSON.parse(jsonPayload);
+                  
+                  const accountRes = await firebaseAuthService.signInWithGoogleAccount({
+                    email: profile.email,
+                    displayName: profile.name,
+                    photoURL: profile.picture,
+                  });
+
+                  // Also link to Firebase credential
+                  firebaseAuthService.signInWithGoogleCredential(response.credential).catch(() => {});
+
+                  if (accountRes.success) {
+                    setSuccessMessage(
+                      accountRes.isAdmin
+                        ? "Autenticado com sucesso como Administrador!"
+                        : "Login com o Google realizado com sucesso!"
+                    );
+                    setTimeout(() => {
+                      onClose();
+                      if (accountRes.isAdmin && onOpenMetrics) onOpenMetrics();
+                    }, 600);
+                  }
+                } catch {
+                  setErrorMessage("Não foi possível autenticar a Conta Google.");
+                } finally {
+                  setLoading(false);
+                }
+              }
+            },
+            auto_select: false,
+          });
+
+          googleBtnContainerRef.current.innerHTML = "";
+          g.accounts.id.renderButton(googleBtnContainerRef.current, {
+            theme: "outline",
+            size: "large",
+            width: 320,
+            text: "signin_with",
+            shape: "pill",
+            logo_alignment: "left",
+          });
+        } catch (e) {
+          console.warn("GIS setup notice:", e);
+        }
+      }
+    };
+
+    const timer = setTimeout(initGis, 150);
+    return () => clearTimeout(timer);
+  }, [isOpen, onClose, onOpenMetrics]);
 
   if (!isOpen) return null;
 
-  const inIframe = isRunningInIframe();
-  const adminEmails = getAdminEmailsList();
-  const primaryAdminEmail = adminEmails.find((e) => e === "legislativemunicipal@gmail.com") || adminEmails[0] || "legislativemunicipal@gmail.com";
-
-  // Login automático exclusivo com o Google via Pop-up Nativo
+  // Single exclusive Google Sign-In action
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setErrorMessage(null);
-    setErrorCode(null);
     setSuccessMessage(null);
 
     try {
-      const res = await firebaseAuthService.signInWithGooglePopup();
+      const res = await firebaseAuthService.signInWithGoogle();
       if (res.success) {
         const isAdmin = res.isAdmin;
         setSuccessMessage(
           isAdmin
             ? "Autenticado com sucesso como Administrador!"
-            : "Login com Google realizado com sucesso!"
+            : "Login com o Google realizado com sucesso!"
         );
         setTimeout(() => {
           onClose();
           if (isAdmin && onOpenMetrics) {
             onOpenMetrics();
           }
-        }, 700);
+        }, 600);
+      } else if (res.requiresAccountSelection) {
+        setShowEmailPrompt(true);
       } else {
-        setErrorMessage(
-          res.error ||
-            "A janela de login com o Google foi fechada ou bloqueada pelo navegador."
-        );
-        setErrorCode(res.errorCode || null);
+        setErrorMessage(res.error || "Não foi possível conectar com o Google. Tente novamente.");
       }
-    } catch (err: any) {
-      setErrorMessage(err?.message || "Não foi possível conectar com a Conta Google.");
-      setErrorCode(err?.code || null);
+    } catch {
+      setShowEmailPrompt(true);
     } finally {
       setLoading(false);
     }
   };
 
-  // Login direto com Conta Google (ideal para ambiente iframe ou quando popup é restrito)
-  const handleDirectGoogleSignIn = async (emailToUse: string) => {
-    if (!emailToUse || !emailToUse.includes("@")) {
-      setErrorMessage("Por favor, informe um endereço de e-mail do Google válido (@gmail.com).");
+  const handleAccountSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = googleEmail.trim().toLowerCase();
+    if (!clean || !clean.includes("@")) {
+      setErrorMessage("Por favor, informe seu endereço de e-mail do Google válido (@gmail.com).");
       return;
     }
+
     setLoading(true);
     setErrorMessage(null);
-    setErrorCode(null);
-    setSuccessMessage(null);
 
     try {
-      const res = await firebaseAuthService.signInWithGoogleAccount({ email: emailToUse });
+      const res = await firebaseAuthService.signInWithGoogleAccount({ email: clean });
       if (res.success) {
         const isAdmin = res.isAdmin;
         setSuccessMessage(
           isAdmin
-            ? `Autenticado com sucesso como Administrador (${emailToUse})!`
-            : `Login com Google realizado com sucesso (${emailToUse})!`
+            ? "Autenticado com sucesso como Administrador!"
+            : "Login com o Google realizado com sucesso!"
         );
         setTimeout(() => {
           onClose();
           if (isAdmin && onOpenMetrics) {
             onOpenMetrics();
           }
-        }, 700);
+        }, 600);
       } else {
-        setErrorMessage(res.error || "Não foi possível autenticar com a Conta Google.");
+        setErrorMessage(res.error || "Não foi possível validar a Conta Google.");
       }
-    } catch (err: any) {
-      setErrorMessage(err?.message || "Erro ao conectar conta Google.");
+    } catch {
+      setErrorMessage("Erro ao conectar Conta Google.");
     } finally {
       setLoading(false);
     }
@@ -98,7 +165,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMet
   return (
     <div
       id="auth-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-4 overflow-y-auto animate-fade-in"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -138,7 +205,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMet
                   Entrar com o Google
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Norma Jurídica • Login Automático
+                  Norma Jurídica • Acesso Oficial
                 </p>
               </div>
             </div>
@@ -152,16 +219,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMet
           </div>
 
           <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-6">
-            Acesse diretamente com sua Conta Google. O seu <strong>nome oficial</strong> e <strong>foto de perfil</strong> configurados na sua Conta Google serão exibidos automaticamente ao lado do avatar no topo do portal.
+            Acesse com sua Conta Google. Seu avatar e nome do Google serão exibidos no canto superior direito do portal.
           </p>
 
           {/* Feedback messages */}
           {errorMessage && (
-            <div className="mb-5 flex flex-col gap-3">
-              <div className="p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/50 flex items-start gap-2.5 text-xs text-red-700 dark:text-red-300">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
-                <span>{errorMessage}</span>
-              </div>
+            <div className="mb-5 p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/50 flex items-start gap-2.5 text-xs text-red-700 dark:text-red-300">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+              <span>{errorMessage}</span>
             </div>
           )}
 
@@ -172,9 +237,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMet
             </div>
           )}
 
-          {/* Ações de Login */}
-          <div className="space-y-3.5">
-            {/* Botão Principal: Pop-up Nativo do Google */}
+          {/* Exclusive Google Sign-In Actions */}
+          <div className="space-y-4">
+            {/* Google Identity Services official rendered button container */}
+            <div ref={googleBtnContainerRef} className="flex justify-center empty:hidden min-h-[44px]" />
+
+            {/* Custom Google button */}
             <button
               id="google-sign-in-action-btn"
               type="button"
@@ -200,95 +268,45 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onOpenMet
                   fill="#EA4335"
                 />
               </svg>
-              <span>{loading ? "Conectando ao Google..." : "Entrar com Pop-up Google"}</span>
+              <span>{loading ? "Conectando ao Google..." : "Entrar com o Google"}</span>
             </button>
 
-            {/* Alternativa Direta: Autenticação com Conta Google configurada (sem bloqueio de iframe/pop-up) */}
-            <div className="pt-2">
-              <div className="relative flex items-center justify-center my-2">
-                <div className="border-t border-slate-200 dark:border-slate-800 w-full" />
-                <span className="bg-white dark:bg-slate-900 px-2 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-                  {inIframe || errorMessage ? "Ou Autenticar Imediatamente" : "Opção Rápida"}
-                </span>
-                <div className="border-t border-slate-200 dark:border-slate-800 w-full" />
-              </div>
-
-              {/* Botão 1-Clique para a Conta Administrador Principal */}
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => handleDirectGoogleSignIn(primaryAdminEmail)}
-                className="w-full mt-1.5 py-3 px-4 rounded-2xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 font-semibold text-xs transition-colors flex items-center justify-between cursor-pointer"
-              >
-                <div className="flex items-center gap-2.5 overflow-hidden">
-                  <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                    G
-                  </div>
-                  <div className="text-left truncate">
-                    <div className="font-bold text-slate-900 dark:text-white truncate">
-                      {primaryAdminEmail}
-                    </div>
-                    <div className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">
-                      Conta Administrador Oficial
-                    </div>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 shrink-0 text-blue-500 ml-2" />
-              </button>
-
-              {/* Formulário para entrar com outro e-mail Google */}
-              {showEmailInput ? (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    handleDirectGoogleSignIn(customEmail);
-                  }}
-                  className="mt-3 space-y-2"
-                >
+            {/* Seamless Google Account Confirmation if browser environment requires direct confirmation */}
+            {showEmailPrompt && (
+              <form onSubmit={handleAccountSubmit} className="pt-2 space-y-3 animate-fade-in">
+                <div className="text-left">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Confirme sua Conta Google:
+                  </label>
                   <div className="flex items-center gap-2">
                     <input
                       type="email"
-                      value={customEmail}
-                      onChange={(e) => setCustomEmail(e.target.value)}
+                      value={googleEmail}
+                      onChange={(e) => setGoogleEmail(e.target.value)}
                       placeholder="seu-email@gmail.com"
-                      className="flex-1 px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      autoFocus
+                      required
+                      className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <button
                       type="submit"
-                      disabled={loading || !customEmail}
-                      className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
+                      disabled={loading || !googleEmail}
+                      className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-md transition-colors"
                     >
-                      Acessar
+                      <span>Acessar</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                </form>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setShowEmailInput(true)}
-                  className="mt-2 w-full text-center text-[11px] text-slate-500 hover:text-blue-500 dark:text-slate-400 dark:hover:text-blue-400 transition-colors cursor-pointer py-1"
-                >
-                  Entrar com outro e-mail @gmail.com
-                </button>
-              )}
+                </div>
+              </form>
+            )}
 
-              {/* Botão de abrir em nova aba para quem preferir tela cheia */}
-              <button
-                type="button"
-                onClick={() => window.open(window.location.href, "_blank")}
-                className="mt-2 w-full py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-850 text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span>Abrir Portal em Nova Aba</span>
-              </button>
-            </div>
-
-            {/* Aviso de Privacidade e Segurança */}
-            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80">
+            {/* Privacy note */}
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800/80">
               <div className="flex items-start gap-2.5 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
                 <Shield className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
                 <p>
-                  Autenticação segura e direta com o Google. Não solicitamos senhas. Os administradores autorizados têm acesso liberado ao Painel de Metas e Estatísticas.
+                  Autenticação exclusiva via Conta Google. Administradores autorizados têm acesso completo ao Painel de Métricas.
                 </p>
               </div>
             </div>

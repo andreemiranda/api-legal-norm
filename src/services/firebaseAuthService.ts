@@ -9,6 +9,7 @@ import {
   onAuthStateChanged,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithCredential,
   User,
 } from "firebase/auth";
 import { ref, set } from "firebase/database";
@@ -293,68 +294,109 @@ class FirebaseAuthService {
   }
 
   /**
-   * Attempts native Google popup sign-in if Firebase Auth is fully active
+   * Universal Sign-In with Google:
+   * First tries native Firebase Auth with Google provider.
+   * If running inside an iframe or browser restrictions, returns requiresAccountSelection
+   * without showing any popup error messages.
    */
-  public async signInWithGooglePopup(): Promise<{
+  public async signInWithGoogle(): Promise<{
     success: boolean;
     isAdmin: boolean;
     error?: string;
-    errorCode?: string;
-    requiresFallback?: boolean;
+    requiresAccountSelection?: boolean;
   }> {
     try {
       await ensureFirebaseInitialized();
       const { auth } = getPrimaryFirebase();
-      if (!auth || !isConfigValid(primaryConfig)) {
-        return { success: false, isAdmin: false, requiresFallback: true };
-      }
+      if (auth && isConfigValid(primaryConfig)) {
+        try {
+          const provider = new GoogleAuthProvider();
+          provider.setCustomParameters({ prompt: "select_account" });
+          const result = await signInWithPopup(auth, provider);
+          const user = result.user;
+          const email = user.email || "";
+          const isAdmin = isEmailAdmin(email);
 
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
+          this.currentUser = user;
+          this.customUser = null;
+          try {
+            localStorage.removeItem("nj_user_session");
+            localStorage.removeItem("nj_admin_session");
+          } catch {}
 
-      const email = user.email || "";
-      const isAdmin = isEmailAdmin(email);
+          this.notifyListeners();
+          await this.logUserAccess(user, isAdmin ? "google_admin_login" : "google_reader_login");
 
-      this.currentUser = user;
-      this.customUser = null;
-      try {
-        localStorage.removeItem("nj_user_session");
-        localStorage.removeItem("nj_admin_session");
-      } catch {}
-
-      this.notifyListeners();
-      await this.logUserAccess(user, isAdmin ? "google_admin_login" : "google_reader_login");
-
-      return { success: true, isAdmin };
-    } catch (err: any) {
-      console.warn("Native Google Popup notice (switching to Google UI):", err?.code || err?.message);
-      
-      let errorMsg = err?.message || "Popup não pôde ser aberto.";
-      let requiresFallback = true;
-      let errorCode = err?.code || "";
-
-      if (errorCode === "auth/popup-closed-by-user") {
-        errorMsg = "O pop-up de login foi fechado ou bloqueado pelo navegador. Como este ambiente de desenvolvimento funciona dentro de um iframe seguro, você pode autenticar diretamente com sua Conta Google abaixo ou abrir em uma nova aba.";
-      } else if (errorCode === "auth/web-storage-unsupported") {
-        errorMsg = "Seu navegador está bloqueando armazenamento local ou cookies de terceiros. Você pode autenticar diretamente com sua Conta Google abaixo ou abrir em uma nova aba.";
-      } else if (errorCode === "auth/popup-blocked") {
-        errorMsg = "O pop-up de login foi bloqueado pelo navegador. Você pode autenticar diretamente com sua Conta Google abaixo ou autorizar pop-ups.";
-      } else if (errorCode === "auth/unauthorized-domain") {
-        errorMsg = "Domínio em ambiente de pré-visualização. Você pode autenticar diretamente com sua Conta Google abaixo para prosseguir.";
-      } else if (errorCode.includes("api-key")) {
-        errorMsg = "Chave de API do Firebase atualizada com sucesso. Por favor, tente novamente.";
+          return { success: true, isAdmin };
+        } catch (popupErr: any) {
+          console.warn("Native Google login notice:", popupErr?.code || popupErr?.message);
+        }
       }
 
       return {
         success: false,
         isAdmin: false,
-        requiresFallback,
-        error: errorMsg,
-        errorCode: errorCode
+        requiresAccountSelection: true,
+      };
+    } catch {
+      return {
+        success: false,
+        isAdmin: false,
+        requiresAccountSelection: true,
       };
     }
+  }
+
+  /**
+   * Sign-in via Google Identity Services (GIS) ID Token
+   */
+  public async signInWithGoogleCredential(idToken: string): Promise<{
+    success: boolean;
+    isAdmin: boolean;
+    error?: string;
+  }> {
+    try {
+      await ensureFirebaseInitialized();
+      const { auth } = getPrimaryFirebase();
+      if (auth) {
+        const credential = GoogleAuthProvider.credential(idToken);
+        const result = await signInWithCredential(auth, credential);
+        if (result.user) {
+          const email = result.user.email || "";
+          const isAdmin = isEmailAdmin(email);
+          this.currentUser = result.user;
+          this.customUser = null;
+          try {
+            localStorage.removeItem("nj_user_session");
+            localStorage.removeItem("nj_admin_session");
+          } catch {}
+          this.notifyListeners();
+          await this.logUserAccess(result.user, isAdmin ? "google_admin_login" : "google_reader_login");
+          return { success: true, isAdmin };
+        }
+      }
+    } catch (e: any) {
+      console.warn("Credential sign-in notice:", e);
+    }
+    return { success: false, isAdmin: false, error: "Falha ao validar credencial Google." };
+  }
+
+  /**
+   * Backwards compatible helper for popup sign-in
+   */
+  public async signInWithGooglePopup(): Promise<{
+    success: boolean;
+    isAdmin: boolean;
+    error?: string;
+    requiresFallback?: boolean;
+  }> {
+    const res = await this.signInWithGoogle();
+    return {
+      success: res.success,
+      isAdmin: res.isAdmin,
+      error: res.error,
+      requiresFallback: res.requiresAccountSelection,
+    };
   }
 
   /**

@@ -593,9 +593,12 @@ function processAndApplySobrescricao(rawNews: any[]) {
   }
 }
 
-function broadcastRealtimeUpdate() {
+function broadcastRealtimeUpdate(action: string = "update", item?: any) {
+  lastSyncTimestamp = Date.now();
   const payload = JSON.stringify({
     type: "news_update",
+    action,
+    item: item || null,
     total: allNewsData.length,
     latestId: allNewsData[0]?.id || null,
     latestSlug: allNewsData[0]?.slug || null,
@@ -1149,7 +1152,7 @@ app.post("/api/news", (req, res) => {
 
   allNewsData.unshift(newItem);
   saveJsonDatabaseFile("newsCache.json", allNewsData);
-  broadcastRealtimeUpdate();
+  broadcastRealtimeUpdate("create", newItem);
 
   res.status(201).json({
     success: true,
@@ -1176,7 +1179,7 @@ app.put("/api/news/:id", (req, res) => {
   };
 
   saveJsonDatabaseFile("newsCache.json", allNewsData);
-  broadcastRealtimeUpdate();
+  broadcastRealtimeUpdate("update", allNewsData[idx]);
 
   res.json({
     success: true,
@@ -1198,7 +1201,7 @@ app.delete("/api/news/:id", (req, res) => {
 
   const removed = allNewsData.splice(idx, 1)[0];
   saveJsonDatabaseFile("newsCache.json", allNewsData);
-  broadcastRealtimeUpdate();
+  broadcastRealtimeUpdate("delete", { id: idStr });
 
   res.json({
     success: true,
@@ -1644,6 +1647,11 @@ app.get(["/api/news/category/:category", "/api/feed/news/category/:category"], a
 
 // 8. GET /api/news and /api/feed/news
 const getNewsHandler = (req: express.Request, res: express.Response) => {
+  // Prevent browser caching of dynamic news data so real-time updates reflect immediately
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+
   const isAll = req.query.all === "true" || req.query.limit === "all";
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const perPage = isAll

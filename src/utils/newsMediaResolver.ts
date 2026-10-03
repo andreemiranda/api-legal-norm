@@ -279,7 +279,7 @@ export function extractImagesFromHtml(html?: string | null): string[] {
 export function findWordPressMediaMatch(item: Partial<NewsItem>): { imageUrl: string; altText: string } | null {
   if (inMemoryCatalog.length === 0) return null;
 
-  // 1. Direct Post ID match (WordPress parent post)
+  // 1. Direct Post ID match (WordPress parent post) - exact relationship
   if (item.id) {
     const postMatches = mediaByPostId.get(String(item.id));
     if (postMatches && postMatches.length > 0) {
@@ -302,15 +302,23 @@ export function findWordPressMediaMatch(item: Partial<NewsItem>): { imageUrl: st
   }
 
   const rawPostSlug = extractSlug(item.link || item.slug || "").toLowerCase();
+  if (!rawPostSlug || rawPostSlug.length < 8) {
+    return null;
+  }
+
   const postSlugTokens = tokenize(rawPostSlug);
   const titleTokens = tokenize(item.title);
+
+  if (postSlugTokens.size < 3) {
+    return null;
+  }
 
   let bestMatch: IndexedMediaItem | null = null;
   let bestScore = 0;
 
   for (const m of pool) {
-    // Check direct slug match
-    if (rawPostSlug && m.cleanSlug && m.cleanSlug.includes(rawPostSlug)) {
+    // Check EXACT or high-confidence slug match (must be at least 15 characters and identical base)
+    if (m.cleanSlug && (m.cleanSlug === rawPostSlug || (rawPostSlug.length >= 15 && m.cleanSlug.startsWith(rawPostSlug)))) {
       return {
         imageUrl: m.imageUrl!,
         altText: m.alt || m.title || String(item.title || ""),
@@ -321,17 +329,16 @@ export function findWordPressMediaMatch(item: Partial<NewsItem>): { imageUrl: st
     const altMatches = tokenOverlap(titleTokens, m.altTokens);
     const titleMatches = tokenOverlap(titleTokens, m.titleTokens);
 
-    // Weighted matching score prioritizing slug and alt tags as requested
-    const score = (slugMatches * 4) + (altMatches * 4) + (titleMatches * 2);
+    const slugRatio = postSlugTokens.size > 0 ? slugMatches / postSlugTokens.size : 0;
+    const titleRatio = titleTokens.size > 0 ? (altMatches + titleMatches) / (titleTokens.size * 2) : 0;
 
-    // Minimum verification threshold:
-    // Requires at least 2 slug tokens, or 2 alt tokens, or 1 slug + 1 alt token matching!
-    if (
-      score > bestScore &&
-      (slugMatches >= 2 || altMatches >= 2 || (slugMatches >= 1 && altMatches >= 1))
-    ) {
-      bestScore = score;
-      bestMatch = m;
+    // Strict threshold: requires at least 4 slug tokens AND 70% overlap to prevent mismatching different news!
+    if (slugMatches >= 4 && slugRatio >= 0.7 && titleRatio >= 0.5) {
+      const score = (slugMatches * 5) + (altMatches * 4) + (titleMatches * 2);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = m;
+      }
     }
   }
 
@@ -347,7 +354,7 @@ export function findWordPressMediaMatch(item: Partial<NewsItem>): { imageUrl: st
 
 /**
  * Resolves authentic images for a news item, guaranteeing at least one image,
- * correctly associating WordPress images via slug and alt tags,
+ * correctly prioritizing the article's own genuine image from source/content,
  * and strictly preventing images from one news appearing in another.
  */
 export function resolveNewsMedia(item: Partial<NewsItem>): {
@@ -360,66 +367,80 @@ export function resolveNewsMedia(item: Partial<NewsItem>): {
     .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
     .trim();
 
-  const rawCandidates: string[] = [];
+  const ownCandidates: string[] = [];
 
-  // 1. Check WordPress Image Endpoint via slug and alt tags
-  const wpMatch = findWordPressMediaMatch(item);
-  if (wpMatch?.imageUrl) {
-    rawCandidates.push(wpMatch.imageUrl);
-  }
+  // 1. Direct item fields from the article itself (ARTICLE'S OWN IMAGES HAVE ABSOLUTE PRIORITY)
+  if (item.thumbnail) ownCandidates.push(item.thumbnail);
+  if (item.imageUrl) ownCandidates.push(item.imageUrl);
+  if (item.image) ownCandidates.push(item.image);
+  if (Array.isArray(item.images)) ownCandidates.push(...item.images);
+  if ((item as any)?.mediaUrl) ownCandidates.push((item as any).mediaUrl);
+  if ((item as any)?.photo) ownCandidates.push((item as any).photo);
+  if ((item as any)?.cover) ownCandidates.push((item as any).cover);
 
-  // 2. Direct item fields from the article itself
-  if (item.thumbnail) rawCandidates.push(item.thumbnail);
-  if (item.imageUrl) rawCandidates.push(item.imageUrl);
-  if (item.image) rawCandidates.push(item.image);
-  if (Array.isArray(item.images)) rawCandidates.push(...item.images);
-  if ((item as any)?.mediaUrl) rawCandidates.push((item as any).mediaUrl);
-  if ((item as any)?.photo) rawCandidates.push((item as any).photo);
-  if ((item as any)?.cover) rawCandidates.push((item as any).cover);
-
-  // 3. Enclosure
+  // 2. Enclosure
   const enc = (item as any)?.enclosure;
   if (enc) {
-    if (typeof enc === "string") rawCandidates.push(enc);
-    else if (typeof enc === "object" && enc.url) rawCandidates.push(enc.url);
+    if (typeof enc === "string") ownCandidates.push(enc);
+    else if (typeof enc === "object" && enc.url) ownCandidates.push(enc.url);
   }
 
-  // 4. Embedded images in content and description
+  // 3. Embedded images in content and description of THIS specific article
   if (item.content) {
-    rawCandidates.push(...extractImagesFromHtml(item.content));
+    ownCandidates.push(...extractImagesFromHtml(item.content));
   }
   if (item.description) {
-    rawCandidates.push(...extractImagesFromHtml(item.description));
+    ownCandidates.push(...extractImagesFromHtml(item.description));
   }
 
-  // Filter and deduplicate candidates, rejecting any cross-source swapped images
-  const deduped = deduplicateImageList(rawCandidates);
-  const distinctImages = deduped.filter((img) => {
+  // Deduplicate and verify article's own candidates
+  const dedupedOwn = deduplicateImageList(ownCandidates);
+  const validOwnImages = dedupedOwn.filter((img) => {
     const check = verifyImageSource(img, item);
     return check.valid;
   });
 
+  // If the article ALREADY HAS its own authentic image, use it! DO NOT replace with catalog!
+  if (validOwnImages.length > 0) {
+    return {
+      primaryImage: validOwnImages[0],
+      images: validOwnImages,
+      verifiedAlt: (item as any)?.imageAlt || officialTitle,
+    };
+  }
+
+  // 4. ONLY if no authentic image was found in the article itself, search media catalog with strict matching
+  const wpMatch = findWordPressMediaMatch(item);
+  if (wpMatch?.imageUrl) {
+    const check = verifyImageSource(wpMatch.imageUrl, item);
+    if (check.valid) {
+      return {
+        primaryImage: wpMatch.imageUrl,
+        images: [wpMatch.imageUrl],
+        verifiedAlt: wpMatch.altText || officialTitle,
+      };
+    }
+  }
+
   // 5. If STILL empty (no image in content and no match in catalog):
-  // Never assign an editorial photo of another news/person!
-  // Fallback cleanly to authentic authorized visual
-  if (distinctImages.length === 0) {
-    const linkHost = (item.link || item.sourceSite || "").toLowerCase();
-    if (linkHost.includes("globo.com") || linkHost.includes("glbimg.com")) {
-      distinctImages.push("https://s2-g1.glbimg.com/FAbgtDgxjSP1NlU5MhFFAbirOeQ=/i.s3.glbimg.com/v1/AUTH_5902ecb793a540d99060c1569f5f0582/internal_photos/bs/2026/G/1/g1-padrao.jpg");
+  // Clean neutral editorial visual fallback based on editorial domain
+  const distinctImages: string[] = [];
+  const linkHost = (item.link || item.sourceSite || "").toLowerCase();
+  if (linkHost.includes("globo.com") || linkHost.includes("glbimg.com")) {
+    distinctImages.push("https://s2-g1.glbimg.com/FAbgtDgxjSP1NlU5MhFFAbirOeQ=/i.s3.glbimg.com/v1/AUTH_5902ecb793a540d99060c1569f5f0582/internal_photos/bs/2026/G/1/g1-padrao.jpg");
+  } else {
+    const cat = (item.category || "").toLowerCase();
+    if (cat.includes("educa")) {
+      distinctImages.push("https://infoeducacao.com.br/wp-content/uploads/2026/09/118181-3-1.jpg");
+    } else if (cat.includes("finan") || cat.includes("econ")) {
+      distinctImages.push("https://admin.cnnbrasil.com.br/wp-content/uploads/sites/12/2026/09/bolsa-valores-b3.jpg");
     } else {
-      const cat = (item.category || "").toLowerCase();
-      if (cat.includes("educa")) {
-        distinctImages.push("https://infoeducacao.com.br/wp-content/uploads/2026/09/118181-3-1.jpg");
-      } else if (cat.includes("finan") || cat.includes("econ")) {
-        distinctImages.push("https://admin.cnnbrasil.com.br/wp-content/uploads/sites/12/2026/09/bolsa-valores-b3.jpg");
-      } else {
-        distinctImages.push("https://admin.cnnbrasil.com.br/wp-content/uploads/sites/12/2026/09/supremo-tribunal-federal-stf.jpg");
-      }
+      distinctImages.push("https://admin.cnnbrasil.com.br/wp-content/uploads/sites/12/2026/09/supremo-tribunal-federal-stf.jpg");
     }
   }
 
   const primaryImage = distinctImages[0] || "";
-  const verifiedAlt = wpMatch?.altText || officialTitle;
+  const verifiedAlt = officialTitle;
 
   return {
     primaryImage,

@@ -125,39 +125,50 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
     }
   };
 
+  const [gateEmail, setGateEmail] = useState("");
+  const [showGateEmailInput, setShowGateEmailInput] = useState(false);
+
   const handleGoogleGateLogin = async () => {
     setLoginError(null);
     setLoginLoading(true);
     try {
-      const nativeRes = await firebaseAuthService.signInWithGooglePopup();
-      if (nativeRes.success) {
-        if (!nativeRes.isAdmin) {
+      const res = await firebaseAuthService.signInWithGoogle();
+      if (res.success) {
+        if (!res.isAdmin) {
           setLoginError("Esta Conta Google não possui privilégios de administrador.");
         }
+      } else if (res.requiresAccountSelection) {
+        setShowGateEmailInput(true);
       } else {
-        setLoginError(nativeRes.error || "Janela de login fechada ou bloqueada. Tente novamente.");
+        setLoginError(res.error || "Não foi possível conectar com o Google no momento.");
       }
     } catch (err: any) {
-      setLoginError(err.message || "Falha ao conectar com o Google.");
+      setShowGateEmailInput(true);
     } finally {
       setLoginLoading(false);
     }
   };
 
-  const handleDirectGateLogin = async (email: string) => {
+  const handleGateAccountSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = gateEmail.trim().toLowerCase();
+    if (!clean || !clean.includes("@")) {
+      setLoginError("Por favor, informe um endereço de e-mail do Google válido (@gmail.com).");
+      return;
+    }
     setLoginError(null);
     setLoginLoading(true);
     try {
-      const res = await firebaseAuthService.signInWithGoogleAccount({ email });
+      const res = await firebaseAuthService.signInWithGoogleAccount({ email: clean });
       if (res.success) {
         if (!res.isAdmin) {
-          setLoginError("Esta Conta Google não possui privilégios de administrador.");
+          setLoginError(`A conta ${clean} não está autorizada como administrador.`);
         }
       } else {
-        setLoginError(res.error || "Falha ao conectar com o Google.");
+        setLoginError(res.error || "Falha ao conectar Conta Google.");
       }
-    } catch (err: any) {
-      setLoginError(err.message || "Falha ao conectar com o Google.");
+    } catch {
+      setLoginError("Falha ao conectar Conta Google.");
     } finally {
       setLoginLoading(false);
     }
@@ -267,43 +278,34 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                     fill="#EA4335"
                   />
                 </svg>
-                <span>{loginLoading ? "Autenticando..." : "Entrar com Pop-up Google"}</span>
+                <span>{loginLoading ? "Conectando ao Google..." : "Entrar com o Google"}</span>
               </button>
 
-              {/* Autenticação Imediata de Administrador (para iframes ou navegadores com pop-up bloqueado) */}
-              <div className="pt-2">
-                <div className="relative flex items-center justify-center my-2">
-                  <div className="border-t border-slate-800 w-full" />
-                  <span className="bg-slate-900 px-2 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-                    Autenticação Rápida de Administrador
-                  </span>
-                  <div className="border-t border-slate-800 w-full" />
-                </div>
-
-                <button
-                  type="button"
-                  disabled={loginLoading}
-                  onClick={() => handleDirectGateLogin(primaryAdminEmail)}
-                  className="w-full mt-1.5 py-2.5 px-3 rounded-xl bg-blue-950/60 hover:bg-blue-900/80 border border-blue-700/60 text-blue-200 font-semibold text-xs transition-colors flex items-center justify-between cursor-pointer"
-                >
-                  <div className="flex items-center gap-2 truncate">
-                    <div className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center text-[10px] font-bold shrink-0">
-                      G
-                    </div>
-                    <span className="truncate text-left">{primaryAdminEmail}</span>
+              {showGateEmailInput && (
+                <form onSubmit={handleGateAccountSubmit} className="pt-2 space-y-2 animate-fade-in">
+                  <label className="block text-[11px] text-slate-400 text-left font-medium">
+                    Informe seu e-mail Google de Administrador:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="email"
+                      value={gateEmail}
+                      onChange={(e) => setGateEmail(e.target.value)}
+                      placeholder="administrador@gmail.com"
+                      autoFocus
+                      required
+                      className="flex-1 px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      type="submit"
+                      disabled={loginLoading || !gateEmail}
+                      className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer"
+                    >
+                      Acessar
+                    </button>
                   </div>
-                  <ArrowRight className="w-3.5 h-3.5 text-blue-400 shrink-0 ml-2" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => window.open(window.location.href, "_blank")}
-                  className="mt-2 w-full py-2 px-3 rounded-xl border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Abrir em Nova Aba</span>
-                </button>
-              </div>
+                </form>
+              )}
             </div>
           )}
 

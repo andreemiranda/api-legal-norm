@@ -364,15 +364,15 @@ class FirebaseTrafficRouter {
     return result;
   }
 
-  private notifyNewsSubscribers(items: NewsItem[]) {
+  private notifyNewsSubscribers(items: NewsItem[], forceTimestamp?: number | string) {
     if (!items || items.length === 0) return;
     // Se a lista recebida for menor que a em memória, mescla para nunca perder matérias
     const merged = this.inMemoryNewsCache.length > items.length
       ? this.mergeNewsItems(this.inMemoryNewsCache, items)
       : items;
 
-    const sig = `${merged.length}_${merged[0]?.id || ""}_${merged[0]?.slug || ""}`;
-    if (sig === this.lastKnownSignature) return;
+    const sig = `${merged.length}_${merged[0]?.id || ""}_${merged[0]?.slug || ""}_${forceTimestamp || ""}`;
+    if (sig === this.lastKnownSignature && !forceTimestamp) return;
     this.lastKnownSignature = sig;
     this.inMemoryNewsCache = merged;
 
@@ -403,7 +403,7 @@ class FirebaseTrafficRouter {
                 : [];
 
               if (items.length > 0) {
-                this.notifyNewsSubscribers(items);
+                this.notifyNewsSubscribers(items, Date.now());
               }
             }
           },
@@ -425,9 +425,29 @@ class FirebaseTrafficRouter {
             if (!event.data) return;
             const payload = JSON.parse(event.data);
             if (payload.type === "news_update") {
-              const res = await this.fetchNews();
+              // Aplicação instantânea local do item se transmitido pelo SSE
+              if (payload.action === "create" && payload.item && payload.item.id) {
+                this.inMemoryNewsCache = [
+                  payload.item,
+                  ...this.inMemoryNewsCache.filter((n) => String(n.id) !== String(payload.item.id)),
+                ];
+                this.notifyNewsSubscribers(this.inMemoryNewsCache, payload.timestamp);
+              } else if (payload.action === "update" && payload.item && payload.item.id) {
+                this.inMemoryNewsCache = this.inMemoryNewsCache.map((n) =>
+                  String(n.id) === String(payload.item.id) ? { ...n, ...payload.item } : n
+                );
+                this.notifyNewsSubscribers(this.inMemoryNewsCache, payload.timestamp);
+              } else if (payload.action === "delete" && payload.item && payload.item.id) {
+                this.inMemoryNewsCache = this.inMemoryNewsCache.filter(
+                  (n) => String(n.id) !== String(payload.item.id)
+                );
+                this.notifyNewsSubscribers(this.inMemoryNewsCache, payload.timestamp);
+              }
+
+              // Sincronização autoritativa completa com a API em segundo plano
+              const res = await this.fetchNews(true);
               if (res && res.news && res.news.length > 0) {
-                this.notifyNewsSubscribers(res.news);
+                this.notifyNewsSubscribers(res.news, payload.timestamp);
               }
             }
           } catch {}
@@ -440,23 +460,23 @@ class FirebaseTrafficRouter {
       console.warn("[Realtime SSE] Setup notice:", e);
     }
 
-    // 3. Verificação periódica silenciosa em segundo plano a cada 20 segundos
+    // 3. Verificação periódica silenciosa em segundo plano a cada 8 segundos com cache-busting
     if (this.realtimePollTimer) clearInterval(this.realtimePollTimer);
     this.realtimePollTimer = setInterval(async () => {
       try {
-        const checkRes = await fetch("/api/realtime/check");
+        const checkRes = await fetch(`/api/realtime/check?_t=${Date.now()}`);
         if (checkRes.ok) {
           const info = await checkRes.json();
-          const sig = `${info.total}_${info.latestId || ""}_${info.latestSlug || ""}`;
+          const sig = `${info.total}_${info.latestId || ""}_${info.latestSlug || ""}_${info.timestamp || ""}`;
           if (sig !== this.lastKnownSignature) {
-            const fetched = await this.fetchNews();
+            const fetched = await this.fetchNews(true);
             if (fetched && fetched.news && fetched.news.length > 0) {
-              this.notifyNewsSubscribers(fetched.news);
+              this.notifyNewsSubscribers(fetched.news, info.timestamp);
             }
           }
         }
       } catch {}
-    }, 20000);
+    }, 8000);
   }
 
   private stopRealtimeSync() {
@@ -713,10 +733,11 @@ class FirebaseTrafficRouter {
    * Fetches news directly from Firebase Realtime Database
    * Exclusively queries RTDB (Primary, Mirror, or Tertiary) without static JSON!
    */
-  public async fetchNews(): Promise<{ news: NewsItem[]; sourceUsed: TrafficSource }> {
+  public async fetchNews(forceFresh = false): Promise<{ news: NewsItem[]; sourceUsed: TrafficSource }> {
     // 1. Sempre prioriza a API do servidor (/api/news?all=true) com o catálogo completo de todas as fontes
     try {
-      const serverRes = await fetch("/api/news?all=true");
+      const url = forceFresh ? `/api/news?all=true&_t=${Date.now()}` : "/api/news?all=true";
+      const serverRes = await fetch(url);
       if (serverRes.ok) {
         const json = await serverRes.json();
         const items = json.data || json;
