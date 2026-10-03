@@ -2,16 +2,20 @@ import express from "express";
 import http from "http";
 import path from "path";
 import fs from "fs";
+import { fileURLToPath } from "url";
 import nodemailer from "nodemailer";
 import helmet from "helmet";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { buildCategoryFeed } from "./src/utils/categoryFeedManager";
 import { extractTagsForNewsItem, computeTagCounts } from "./src/utils/tagEngine";
 import { verifyNewsImage, resolveAuthenticNewsImage } from "./src/utils/imageVerification";
-import { resolveNewsMedia, initMediaCatalog } from "./src/utils/newsMediaResolver";
+import { resolveNewsMedia, initMediaCatalog, getMediaCatalogCount } from "./src/utils/newsMediaResolver";
 import { deduplicateContentImages } from "./src/utils/imageOptimizer";
 
 // Automatically load .env
@@ -217,61 +221,154 @@ function cleanEditorialText(text?: string): string {
     .trim();
 }
 
-// Load initial database files
-try {
-  const catPath = path.join(process.cwd(), "src", "data", "categories.json");
-  if (fs.existsSync(catPath)) {
-    categoriesData = JSON.parse(fs.readFileSync(catPath, "utf-8"));
-  }
-  const srcPath = path.join(process.cwd(), "src", "data", "sources.json");
-  if (fs.existsSync(srcPath)) {
-    sourcesData = JSON.parse(fs.readFileSync(srcPath, "utf-8"));
-  }
+// =============================================================
+// JSON DATABASE AS SINGLE SOURCE OF TRUTH (LOCAL & VERCEL)
+// =============================================================
 
-  // Ensure newly configured Justiça sources are directly in code without needing manual chat input
-  const defaultJusticaSources = [
-    {
-      id: 528374619283746,
-      category: "Justiça",
-      site: "https://api-news-media.netlify.app/api/news/528374619283746",
-      type: "wp-api",
-      url: "https://api-news-media.netlify.app/api/news/528374619283746",
-      active: true,
-      _links: { self: { href: "https://api-news-media.netlify.app/api/news/528374619283746" } },
-      originalSite: "normajuridica.com"
-    },
-    {
-      id: 194728365019283,
-      category: "Justiça",
-      site: "https://api-news-media.netlify.app/api/news/194728365019283",
-      type: "wp-api",
-      url: "https://api-news-media.netlify.app/api/news/194728365019283",
-      active: true,
-      _links: { self: { href: "https://api-news-media.netlify.app/api/news/194728365019283" } },
-      originalSite: "normajuridica.com"
-    },
-    {
-      id: 736482910573649,
-      category: "Justiça",
-      site: "https://api-news-media.netlify.app/api/news/736482910573649",
-      type: "wp-api",
-      url: "https://api-news-media.netlify.app/api/news/736482910573649",
-      active: true,
-      _links: { self: { href: "https://api-news-media.netlify.app/api/news/736482910573649" } },
-      originalSite: "normajuridica.com"
-    },
-    {
-      id: 813947265038471,
-      category: "Justiça",
-      site: "https://api-news-media.netlify.app/api/news/813947265038471",
-      type: "wp-api",
-      url: "https://api-news-media.netlify.app/api/news/813947265038471",
-      active: true,
-      _links: { self: { href: "https://api-news-media.netlify.app/api/news/813947265038471" } },
-      originalSite: "normajuridica.com"
-    }
+interface DatabaseFileMeta {
+  key: string;
+  filename: string;
+  resolvedPath: string;
+  mtimeMs: number;
+  size: number;
+  lastLoaded: number;
+}
+
+const DATABASE_FILENAMES: Record<string, string> = {
+  news: "newsCache.json",
+  sources: "sources.json",
+  categories: "categories.json",
+  mediaCatalog: "mediaCatalog.json",
+  mediaImages: "mediaImages.json",
+  mediaChannels: "mediaChannels.json",
+};
+
+const dbFileMeta = new Map<string, DatabaseFileMeta>();
+let lastStatCheckMs = 0;
+const STAT_CHECK_INTERVAL_MS = 1000;
+
+function resolveDataFilePath(filename: string): string {
+  const candidates = [
+    // 1. /tmp for serverless runtime modifications
+    path.join("/tmp", filename),
+    // 2. Standard location
+    path.join(process.cwd(), "src", "data", filename),
+    // 3. Built distribution location
+    path.join(process.cwd(), "dist", "data", filename),
+    // 4. Root data directory
+    path.join(process.cwd(), "data", filename),
+    // 5. Relative to module directory
+    path.join(__dirname, "src", "data", filename),
+    path.join(__dirname, "..", "src", "data", filename),
+    path.join(__dirname, "dist", "data", filename),
+    path.join(__dirname, "..", "dist", "data", filename),
+    path.join(__dirname, "data", filename),
+    path.join(__dirname, "..", "data", filename),
   ];
 
+  for (const c of candidates) {
+    try {
+      if (fs.existsSync(c)) {
+        return c;
+      }
+    } catch {}
+  }
+  return path.join(process.cwd(), "src", "data", filename);
+}
+
+function saveJsonDatabaseFile(filename: string, data: any): boolean {
+  const targetPath = resolveDataFilePath(filename);
+  const jsonStr = JSON.stringify(data, null, 2);
+
+  // Attempt 1: write directly to targetPath
+  try {
+    const dir = path.dirname(targetPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(targetPath, jsonStr, "utf-8");
+    const stats = fs.statSync(targetPath);
+    const key = Object.keys(DATABASE_FILENAMES).find((k) => DATABASE_FILENAMES[k] === filename) || filename;
+    dbFileMeta.set(key, {
+      key,
+      filename,
+      resolvedPath: targetPath,
+      mtimeMs: stats.mtimeMs,
+      size: stats.size,
+      lastLoaded: Date.now(),
+    });
+    console.log(`[JSON Database] Salvo com sucesso em ${targetPath} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+    return true;
+  } catch (err: any) {
+    console.warn(`[JSON Database] Falha ao escrever em ${targetPath} (${err.message}). Tentando fallback em /tmp/${filename}...`);
+  }
+
+  // Attempt 2: write to /tmp in read-only serverless environment
+  try {
+    const tmpPath = path.join("/tmp", filename);
+    fs.writeFileSync(tmpPath, jsonStr, "utf-8");
+    const stats = fs.statSync(tmpPath);
+    const key = Object.keys(DATABASE_FILENAMES).find((k) => DATABASE_FILENAMES[k] === filename) || filename;
+    dbFileMeta.set(key, {
+      key,
+      filename,
+      resolvedPath: tmpPath,
+      mtimeMs: stats.mtimeMs,
+      size: stats.size,
+      lastLoaded: Date.now(),
+    });
+    console.log(`[JSON Database] Salvo em fallback /tmp/${filename} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+    return true;
+  } catch (err: any) {
+    console.error(`[JSON Database] Erro fatal ao salvar ${filename}:`, err);
+    return false;
+  }
+}
+
+const defaultJusticaSources = [
+  {
+    id: 528374619283746,
+    category: "Justiça",
+    site: "https://api-news-media.netlify.app/api/news/528374619283746",
+    type: "wp-api",
+    url: "https://api-news-media.netlify.app/api/news/528374619283746",
+    active: true,
+    _links: { self: { href: "https://api-news-media.netlify.app/api/news/528374619283746" } },
+    originalSite: "normajuridica.com"
+  },
+  {
+    id: 194728365019283,
+    category: "Justiça",
+    site: "https://api-news-media.netlify.app/api/news/194728365019283",
+    type: "wp-api",
+    url: "https://api-news-media.netlify.app/api/news/194728365019283",
+    active: true,
+    _links: { self: { href: "https://api-news-media.netlify.app/api/news/194728365019283" } },
+    originalSite: "normajuridica.com"
+  },
+  {
+    id: 736482910573649,
+    category: "Justiça",
+    site: "https://api-news-media.netlify.app/api/news/736482910573649",
+    type: "wp-api",
+    url: "https://api-news-media.netlify.app/api/news/736482910573649",
+    active: true,
+    _links: { self: { href: "https://api-news-media.netlify.app/api/news/736482910573649" } },
+    originalSite: "normajuridica.com"
+  },
+  {
+    id: 813947265038471,
+    category: "Justiça",
+    site: "https://api-news-media.netlify.app/api/news/813947265038471",
+    type: "wp-api",
+    url: "https://api-news-media.netlify.app/api/news/813947265038471",
+    active: true,
+    _links: { self: { href: "https://api-news-media.netlify.app/api/news/813947265038471" } },
+    originalSite: "normajuridica.com"
+  }
+];
+
+function applyDefaultJusticaSources() {
   for (const src of defaultJusticaSources) {
     if (!sourcesData.some((s) => String(s.id) === String(src.id))) {
       sourcesData.push(src);
@@ -301,13 +398,37 @@ try {
       }
     }
   });
-  const mediaPath = path.join(process.cwd(), "src", "data", "mediaImages.json");
+}
+
+// Load initial non-news database files
+try {
+  const catPath = resolveDataFilePath("categories.json");
+  if (fs.existsSync(catPath)) {
+    categoriesData = JSON.parse(fs.readFileSync(catPath, "utf-8"));
+    const st = fs.statSync(catPath);
+    dbFileMeta.set("categories", { key: "categories", filename: "categories.json", resolvedPath: catPath, mtimeMs: st.mtimeMs, size: st.size, lastLoaded: Date.now() });
+  }
+
+  const srcPath = resolveDataFilePath("sources.json");
+  if (fs.existsSync(srcPath)) {
+    sourcesData = JSON.parse(fs.readFileSync(srcPath, "utf-8"));
+    const st = fs.statSync(srcPath);
+    dbFileMeta.set("sources", { key: "sources", filename: "sources.json", resolvedPath: srcPath, mtimeMs: st.mtimeMs, size: st.size, lastLoaded: Date.now() });
+  }
+  applyDefaultJusticaSources();
+
+  const mediaPath = resolveDataFilePath("mediaImages.json");
   if (fs.existsSync(mediaPath)) {
     mediaPoolData = JSON.parse(fs.readFileSync(mediaPath, "utf-8"));
+    const st = fs.statSync(mediaPath);
+    dbFileMeta.set("mediaImages", { key: "mediaImages", filename: "mediaImages.json", resolvedPath: mediaPath, mtimeMs: st.mtimeMs, size: st.size, lastLoaded: Date.now() });
   }
-  const mediaChannelsPath = path.join(process.cwd(), "src", "data", "mediaChannels.json");
+
+  const mediaChannelsPath = resolveDataFilePath("mediaChannels.json");
   if (fs.existsSync(mediaChannelsPath)) {
     mediaChannelsData = JSON.parse(fs.readFileSync(mediaChannelsPath, "utf-8"));
+    const st = fs.statSync(mediaChannelsPath);
+    dbFileMeta.set("mediaChannels", { key: "mediaChannels", filename: "mediaChannels.json", resolvedPath: mediaChannelsPath, mtimeMs: st.mtimeMs, size: st.size, lastLoaded: Date.now() });
   }
 } catch (err) {
   console.error("Error loading initial data files:", err);
@@ -315,6 +436,13 @@ try {
 
 // Inicializa catálogo de imagens pré-indexado
 initMediaCatalog();
+const mediaCatPath = resolveDataFilePath("mediaCatalog.json");
+if (fs.existsSync(mediaCatPath)) {
+  try {
+    const st = fs.statSync(mediaCatPath);
+    dbFileMeta.set("mediaCatalog", { key: "mediaCatalog", filename: "mediaCatalog.json", resolvedPath: mediaCatPath, mtimeMs: st.mtimeMs, size: st.size, lastLoaded: Date.now() });
+  } catch {}
+}
 
 // Firebase Realtime Database and Sobrescrição Engine (~2.8 GB Storage & ~29.4 GB Traffic across 3 instances)
 const RTDB_PRIMARY = "https://legal-norm2-default-rtdb.firebaseio.com/news.json";
@@ -452,34 +580,112 @@ const SYNC_INTERVAL_MS = 30 * 60 * 1000; // 30 minutos
 
 let isUpstreamSyncing = false;
 
-const NEWS_CACHE_FILE = path.join(process.cwd(), "src", "data", "newsCache.json");
-const DIST_CACHE_FILE = path.join(process.cwd(), "dist", "data", "newsCache.json");
+// Function to reload a specific JSON database file when modified or forced
+function reloadDatabaseFile(key: string, force = false): boolean {
+  const filename = DATABASE_FILENAMES[key];
+  if (!filename) return false;
 
-// Boot: Carrega imediatamente o catálogo completo pré-processado para disponibilidade instantânea
-function loadInitialNewsCache() {
-  const possiblePaths = [
-    NEWS_CACHE_FILE,
-    DIST_CACHE_FILE,
-    path.join(process.cwd(), "data", "newsCache.json"),
-  ];
+  const resolvedPath = resolveDataFilePath(filename);
+  try {
+    if (!fs.existsSync(resolvedPath)) {
+      return false;
+    }
+    const stats = fs.statSync(resolvedPath);
+    const prev = dbFileMeta.get(key);
+    if (!force && prev && prev.mtimeMs === stats.mtimeMs && prev.size === stats.size) {
+      return false; // No modification detected
+    }
 
-  for (const p of possiblePaths) {
+    const raw = fs.readFileSync(resolvedPath, "utf-8");
+    const parsed = JSON.parse(raw);
+
+    if (key === "categories" && Array.isArray(parsed)) {
+      categoriesData = parsed;
+      console.log(`[JSON Database] Categorias recarregadas (${categoriesData.length} itens) de ${resolvedPath}`);
+    } else if (key === "sources" && Array.isArray(parsed)) {
+      sourcesData = [...parsed];
+      applyDefaultJusticaSources();
+      console.log(`[JSON Database] Fontes recarregadas (${sourcesData.length} itens) de ${resolvedPath}`);
+    } else if (key === "mediaImages" && Array.isArray(parsed)) {
+      mediaPoolData = parsed;
+    } else if (key === "mediaChannels" && Array.isArray(parsed)) {
+      mediaChannelsData = parsed;
+    } else if (key === "mediaCatalog" && Array.isArray(parsed)) {
+      initMediaCatalog(parsed);
+      console.log(`[JSON Database] Catálogo de mídia recarregado (${parsed.length} itens) de ${resolvedPath}`);
+    } else if (key === "news" && Array.isArray(parsed) && parsed.length > 0) {
+      console.log(`[JSON Database] Notícias recarregadas (${parsed.length} matérias) de ${resolvedPath}`);
+      processAndApplySobrescricao(parsed);
+      broadcastRealtimeUpdate();
+    }
+
+    dbFileMeta.set(key, {
+      key,
+      filename,
+      resolvedPath,
+      mtimeMs: stats.mtimeMs,
+      size: stats.size,
+      lastLoaded: Date.now(),
+    });
+    return true;
+  } catch (err: any) {
+    console.warn(`[JSON Database] Falha ao recarregar ${filename}:`, err?.message || err);
+    return false;
+  }
+}
+
+// Scans JSON database files and reloads any that have changed on disk
+function checkAndReloadDatabaseIfModified(force = false): boolean {
+  const now = Date.now();
+  if (!force && now - lastStatCheckMs < STAT_CHECK_INTERVAL_MS) {
+    return false;
+  }
+  lastStatCheckMs = now;
+
+  let anyReloaded = false;
+  for (const key of Object.keys(DATABASE_FILENAMES)) {
+    const filename = DATABASE_FILENAMES[key];
+    const resolvedPath = resolveDataFilePath(filename);
     try {
-      if (fs.existsSync(p)) {
-        const raw = fs.readFileSync(p, "utf-8");
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          console.log(`[Boot] Carregando ${parsed.length} matérias do cache local (${p})...`);
-          processAndApplySobrescricao(parsed);
-          console.log(`[Boot] Catálogo ativo com ${allNewsData.length} matérias prontas para exibição imediata.`);
-          return true;
+      if (fs.existsSync(resolvedPath)) {
+        const stats = fs.statSync(resolvedPath);
+        const prev = dbFileMeta.get(key);
+        if (force || !prev || prev.mtimeMs !== stats.mtimeMs || prev.size !== stats.size) {
+          const ok = reloadDatabaseFile(key, true);
+          if (ok) anyReloaded = true;
         }
       }
-    } catch (err: any) {
-      console.warn(`[Boot] Aviso ao ler cache ${p}:`, err?.message || err);
-    }
+    } catch {}
   }
-  return false;
+  return anyReloaded;
+}
+
+// Background watchers for persistent Node environments (development / container)
+function startDatabaseWatchers() {
+  if (process.env.VERCEL) return;
+  for (const [key, filename] of Object.entries(DATABASE_FILENAMES)) {
+    const resolvedPath = resolveDataFilePath(filename);
+    try {
+      if (fs.existsSync(resolvedPath)) {
+        fs.watchFile(resolvedPath, { interval: 1000 }, (curr, prev) => {
+          if (curr.mtimeMs !== prev.mtimeMs || curr.size !== prev.size) {
+            console.log(`[JSON Database Watcher] Detectada edição em ${filename}! Atualizando API instantaneamente...`);
+            reloadDatabaseFile(key, true);
+          }
+        });
+      }
+    } catch {}
+  }
+}
+
+// Boot: Carrega imediatamente o catálogo completo do JSON database
+function loadInitialNewsCache() {
+  const ok = reloadDatabaseFile("news", true);
+  if (!ok) {
+    const fallbackPath = resolveDataFilePath("newsCache.json");
+    console.warn(`[JSON Database] Aviso: newsCache.json não pôde ser carregado em ${fallbackPath}`);
+  }
+  startDatabaseWatchers();
 }
 
 // Carrega imediatamente no arranque
@@ -509,7 +715,10 @@ async function syncMediaCatalogFromUpstream() {
                   }
                   return {
                     id: item.id,
-                    title: item.title?.rendered || item.title || "",
+                    postId: item.post || item.parent || item.raw?.post || item.raw?.parent || null,
+                    slug: (item.slug || item.raw?.slug || "").trim(),
+                    alt: (item.alt_text || item.alt || item.raw?.alt_text || item.raw?.alt || "").trim(),
+                    title: (item.title?.rendered || item.title || "").trim(),
                     link: item.link || "",
                     imageUrl: img,
                     sourceId: ch.id,
@@ -532,8 +741,8 @@ async function syncMediaCatalogFromUpstream() {
     }
 
     if (fetchedMedia.length > 0) {
-      const mediaCatalogPath = path.join(process.cwd(), "src", "data", "mediaCatalog.json");
       let existing: any[] = [];
+      const mediaCatalogPath = resolveDataFilePath("mediaCatalog.json");
       if (fs.existsSync(mediaCatalogPath)) {
         try { existing = JSON.parse(fs.readFileSync(mediaCatalogPath, "utf-8")); } catch {}
       }
@@ -542,9 +751,7 @@ async function syncMediaCatalogFromUpstream() {
       fetchedMedia.forEach((x) => { if (x.imageUrl) map.set(x.imageUrl, x); });
       const merged = Array.from(map.values());
       initMediaCatalog(merged);
-      try {
-        fs.writeFileSync(mediaCatalogPath, JSON.stringify(merged));
-      } catch {}
+      saveJsonDatabaseFile("mediaCatalog.json", merged);
     }
   } catch (err: any) {
     console.warn("[Media Catalog Sync] Aviso ao atualizar catálogo de imagens:", err?.message || err);
@@ -608,14 +815,8 @@ async function syncNewsFromUpstreamApi() {
       sourcesMonitoringState.upstreamConnected = true;
       sourcesMonitoringState.ingestedNewsCount += rawItems.length;
 
-      // Persiste cache no disco para inicialização ultrarrápida no próximo boot
-      try {
-        const dir = path.dirname(NEWS_CACHE_FILE);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(NEWS_CACHE_FILE, JSON.stringify(allNewsData));
-      } catch (err) {
-        console.warn("[Upstream News API] Falha ao salvar newsCache.json:", err);
-      }
+      // Persiste cache no disco / JSON database para inicialização ultrarrápida
+      saveJsonDatabaseFile("newsCache.json", allNewsData);
     }
   } catch (err: any) {
     console.error("[Upstream News API] Erro ao sincronizar:", err?.message || err);
@@ -759,8 +960,339 @@ app.get(["/next_imagem", "/next_image"], async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// API Endpoints Implementation
+// API Endpoints Implementation (JSON Database as Source of Truth)
 // -------------------------------------------------------------
+
+// Middleware ensuring JSON database files are hot-reloaded automatically upon any modification
+app.use((req, _res, next) => {
+  if (
+    req.path.startsWith("/api") ||
+    req.path.startsWith("/feed") ||
+    req.path.startsWith("/sitemap") ||
+    req.path.startsWith("/rss")
+  ) {
+    checkAndReloadDatabaseIfModified();
+  }
+  next();
+});
+
+// JSON Database Status & Health Diagnostics
+app.get("/api/database/status", (_req, res) => {
+  checkAndReloadDatabaseIfModified();
+  const files: Record<string, any> = {};
+
+  for (const [key, filename] of Object.entries(DATABASE_FILENAMES)) {
+    const meta = dbFileMeta.get(key);
+    const resolvedPath = resolveDataFilePath(filename);
+    let sizeBytes = meta?.size || 0;
+    let mtime = meta?.mtimeMs ? new Date(meta.mtimeMs).toISOString() : null;
+    let exists = false;
+
+    try {
+      if (fs.existsSync(resolvedPath)) {
+        exists = true;
+        const st = fs.statSync(resolvedPath);
+        sizeBytes = st.size;
+        mtime = new Date(st.mtimeMs).toISOString();
+      }
+    } catch {}
+
+    let count = 0;
+    if (key === "news") count = allNewsData.length;
+    else if (key === "sources") count = sourcesData.length;
+    else if (key === "categories") count = categoriesData.length;
+    else if (key === "mediaCatalog") count = getMediaCatalogCount();
+    else if (key === "mediaImages") count = mediaPoolData.length;
+    else if (key === "mediaChannels") count = mediaChannelsData.length;
+
+    files[key] = {
+      filename,
+      resolvedPath,
+      exists,
+      itemsCount: count,
+      sizeBytes,
+      sizeFormatted: `${(sizeBytes / 1024 / 1024).toFixed(2)} MB`,
+      lastModified: mtime,
+      lastLoaded: meta?.lastLoaded ? new Date(meta.lastLoaded).toISOString() : null,
+    };
+  }
+
+  res.json({
+    success: true,
+    engine: "JSON Database (Single Source of Truth)",
+    isVercel: Boolean(process.env.VERCEL),
+    environment: process.env.NODE_ENV || "development",
+    summary: {
+      totalNews: allNewsData.length,
+      totalSources: sourcesData.length,
+      totalCategories: categoriesData.length,
+      totalMediaCatalog: getMediaCatalogCount(),
+      lastSyncTimestamp: new Date(lastSyncTimestamp).toISOString(),
+    },
+    files,
+  });
+});
+
+// Force manual reload of all JSON database files
+app.post("/api/database/reload", (_req, res) => {
+  checkAndReloadDatabaseIfModified(true);
+  res.json({
+    success: true,
+    message: "Base de dados JSON recarregada com sucesso.",
+    summary: {
+      totalNews: allNewsData.length,
+      totalSources: sourcesData.length,
+      totalCategories: categoriesData.length,
+      totalMediaCatalog: getMediaCatalogCount(),
+      timestamp: new Date().toISOString(),
+    },
+  });
+});
+
+// GET /api/media-catalog - Returns indexed media items
+app.get(["/api/media-catalog", "/api/images"], (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+  const perPage = Math.min(100, Math.max(1, parseInt(req.query.per_page as string, 10) || 30));
+  const mediaCatPath = resolveDataFilePath("mediaCatalog.json");
+  let items: any[] = [];
+
+  try {
+    if (fs.existsSync(mediaCatPath)) {
+      items = JSON.parse(fs.readFileSync(mediaCatPath, "utf-8"));
+    }
+  } catch {}
+
+  const total = items.length;
+  const totalPages = Math.ceil(total / perPage);
+  const start = (page - 1) * perPage;
+  const paginated = items.slice(start, start + perPage);
+
+  res.json({
+    success: true,
+    total,
+    page,
+    per_page: perPage,
+    total_pages: totalPages,
+    data: paginated,
+  });
+});
+
+// POST /api/news - Create news article into JSON database
+app.post("/api/news", (req, res) => {
+  const item = req.body;
+  if (!item || !item.title) {
+    return res.status(400).json({ success: false, error: "Título obrigatório para a matéria." });
+  }
+
+  const cleanTitle = (item.title || "").trim();
+  const newItem = {
+    ...item,
+    id: item.id || Date.now(),
+    title: cleanTitle,
+    slug: item.slug || `post/${slugify(item.category || "noticias")}/${slugify(cleanTitle)}`,
+    pubDate: item.pubDate || new Date().toISOString(),
+    active: item.active !== false,
+  };
+
+  allNewsData.unshift(newItem);
+  saveJsonDatabaseFile("newsCache.json", allNewsData);
+  broadcastRealtimeUpdate();
+
+  res.status(201).json({
+    success: true,
+    message: "Matéria salva com sucesso no JSON database.",
+    data: newItem,
+  });
+});
+
+// PUT /api/news/:id - Update news article in JSON database
+app.put("/api/news/:id", (req, res) => {
+  const idStr = String(req.params.id);
+  const idx = allNewsData.findIndex(
+    (n) => String(n.id) === idStr || n.slug === idStr || n.slug === `post/${encodeURIComponent(idStr)}`
+  );
+
+  if (idx === -1) {
+    return res.status(404).json({ success: false, error: "Notícia não encontrada no catálogo." });
+  }
+
+  allNewsData[idx] = {
+    ...allNewsData[idx],
+    ...req.body,
+    id: allNewsData[idx].id, // Keep existing ID
+  };
+
+  saveJsonDatabaseFile("newsCache.json", allNewsData);
+  broadcastRealtimeUpdate();
+
+  res.json({
+    success: true,
+    message: "Matéria atualizada com sucesso no JSON database.",
+    data: allNewsData[idx],
+  });
+});
+
+// DELETE /api/news/:id - Delete news article from JSON database
+app.delete("/api/news/:id", (req, res) => {
+  const idStr = String(req.params.id);
+  const idx = allNewsData.findIndex(
+    (n) => String(n.id) === idStr || n.slug === idStr || n.slug === `post/${encodeURIComponent(idStr)}`
+  );
+
+  if (idx === -1) {
+    return res.status(404).json({ success: false, error: "Notícia não encontrada no catálogo." });
+  }
+
+  const removed = allNewsData.splice(idx, 1)[0];
+  saveJsonDatabaseFile("newsCache.json", allNewsData);
+  broadcastRealtimeUpdate();
+
+  res.json({
+    success: true,
+    message: "Matéria removida com sucesso do JSON database.",
+    data: removed,
+  });
+});
+
+// POST /api/sources - Add source into JSON database
+app.post("/api/sources", (req, res) => {
+  const src = req.body;
+  if (!src || !src.site) {
+    return res.status(400).json({ success: false, error: "URL do site obrigatória." });
+  }
+
+  const newSource = {
+    ...src,
+    id: src.id || Date.now(),
+    category: src.category || "Geral",
+    active: src.active !== false,
+  };
+
+  sourcesData.push(newSource);
+  saveJsonDatabaseFile("sources.json", sourcesData);
+
+  res.status(201).json({
+    success: true,
+    message: "Fonte salva com sucesso no JSON database.",
+    data: newSource,
+  });
+});
+
+// PUT /api/sources/:id - Update source in JSON database
+app.put("/api/sources/:id", (req, res) => {
+  const idStr = String(req.params.id);
+  const idx = sourcesData.findIndex((s) => String(s.id) === idStr);
+
+  if (idx === -1) {
+    return res.status(404).json({ success: false, error: "Fonte não encontrada." });
+  }
+
+  sourcesData[idx] = {
+    ...sourcesData[idx],
+    ...req.body,
+    id: sourcesData[idx].id,
+  };
+
+  saveJsonDatabaseFile("sources.json", sourcesData);
+
+  res.json({
+    success: true,
+    message: "Fonte atualizada com sucesso no JSON database.",
+    data: sourcesData[idx],
+  });
+});
+
+// DELETE /api/sources/:id - Delete source from JSON database
+app.delete("/api/sources/:id", (req, res) => {
+  const idStr = String(req.params.id);
+  const idx = sourcesData.findIndex((s) => String(s.id) === idStr);
+
+  if (idx === -1) {
+    return res.status(404).json({ success: false, error: "Fonte não encontrada." });
+  }
+
+  const removed = sourcesData.splice(idx, 1)[0];
+  saveJsonDatabaseFile("sources.json", sourcesData);
+
+  res.json({
+    success: true,
+    message: "Fonte removida com sucesso do JSON database.",
+    data: removed,
+  });
+});
+
+// POST /api/categories - Add or update category in JSON database
+app.post("/api/categories", (req, res) => {
+  const cat = req.body;
+  if (!cat || !cat.category) {
+    return res.status(400).json({ success: false, error: "Nome da categoria obrigatório." });
+  }
+
+  const existingIdx = categoriesData.findIndex(
+    (c) => c.category.toLowerCase() === cat.category.toLowerCase()
+  );
+
+  if (existingIdx !== -1) {
+    categoriesData[existingIdx] = { ...categoriesData[existingIdx], ...cat };
+  } else {
+    categoriesData.push({ category: cat.category, count: cat.count || 250 });
+  }
+
+  saveJsonDatabaseFile("categories.json", categoriesData);
+
+  res.json({
+    success: true,
+    message: "Categoria salva no JSON database.",
+    data: categoriesData,
+  });
+});
+
+// RSS 2.0 Dynamic XML Feed
+app.get(["/feed.xml", "/rss.xml", "/api/rss", "/api/feed.xml"], (req, res) => {
+  const siteUrl = getSiteUrl(req);
+  const items = allNewsData.slice(0, 50);
+
+  const rssItems = items
+    .map((item) => {
+      const cleanTitle = (item.title || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const cleanDesc = (item.description || item.excerpt || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      const link = item.slug ? `${siteUrl}/${item.slug}` : item.link || siteUrl;
+      const pubDate = item.pubDate ? new Date(item.pubDate).toUTCString() : new Date().toUTCString();
+      const imgUrl = item.thumbnail || item.imageUrl || "";
+
+      return `    <item>
+      <title>${cleanTitle}</title>
+      <link>${link}</link>
+      <guid isPermaLink="true">${link}</guid>
+      <description>${cleanDesc}</description>
+      <category>${item.category || "Geral"}</category>
+      <pubDate>${pubDate}</pubDate>
+      ${imgUrl ? `<enclosure url="${imgUrl}" type="image/jpeg" />` : ""}
+    </item>`;
+    })
+    .join("\n");
+
+  const rssXml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Norma Jurídica - Notícias Jurídicas e Legislação</title>
+    <link>${siteUrl}</link>
+    <description>Portal independente de notícias jurídicas, normas, legislação e atualizações do Direito no Brasil.</description>
+    <language>pt-BR</language>
+    <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+    <atom:link href="${siteUrl}/feed.xml" rel="self" type="application/rss+xml" />
+${rssItems}
+  </channel>
+</rss>`;
+
+  res.type("application/xml; charset=utf-8").send(rssXml);
+});
 
 // 1. Health check
 app.get("/api/health", (_req, res) => {
@@ -2069,9 +2601,16 @@ async function startServer() {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
-  httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Norma Jurídica server running at http://0.0.0.0:${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    httpServer.listen(PORT, "0.0.0.0", () => {
+      console.log(`Norma Jurídica server running at http://0.0.0.0:${PORT}`);
+    });
+  }
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export { app, startServer };
+export default app;

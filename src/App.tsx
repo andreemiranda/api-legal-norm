@@ -502,7 +502,7 @@ function MainPortal() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* Main Content Column (8 cols on desktop) */}
-          <div className="lg:col-span-8 w-full">
+          <div className="lg:col-span-8 w-full max-w-full overflow-hidden min-w-0">
             {currentView === "home" && (
               <HomePage
                 news={paginatedNews}
@@ -591,7 +591,7 @@ function MainPortal() {
           </div>
 
           {/* Right Sidebar (4 cols on desktop) */}
-          <div className="lg:col-span-4 w-full">
+          <div className="lg:col-span-4 w-full max-w-full overflow-hidden min-w-0">
             <RightSidebar
               categories={categories}
               selectedCategory={selectedCategory}

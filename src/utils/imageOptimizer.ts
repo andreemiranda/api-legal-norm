@@ -487,9 +487,26 @@ export function processPostContent(
     .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
     .replace(/\bRedação Norma Jurídica\b/gi, "Norma Jurídica");
 
-  // 3. Ensure all remaining distinct <img> tags have referrerpolicy="no-referrer" and loading="lazy"
+  // 3. Ensure all remaining distinct <img> tags have layout constraints, referrerpolicy, and loading
   html = html.replace(/<img([^>]+)>/gi, (match, attrs) => {
     let cleanAttrs = attrs;
+
+    // Strip inline width/height attributes with large numbers that break layouts
+    cleanAttrs = cleanAttrs.replace(/\s+(?:width|height)=["']\d+["']/gi, "");
+
+    // Strip disruptive inline styles (e.g. width: 1200px; max-width: none)
+    cleanAttrs = cleanAttrs.replace(/style=["'][^"']*["']/gi, "");
+
+    // Append strict containment style
+    cleanAttrs += ` style="max-width: 100% !important; height: auto !important; display: block; margin-left: auto; margin-right: auto; object-fit: cover;"`;
+
+    // Ensure responsive class
+    if (cleanAttrs.includes('class="') || cleanAttrs.includes("class='")) {
+      cleanAttrs = cleanAttrs.replace(/class=["']([^"']*)["']/i, 'class="$1 max-w-full h-auto rounded-xl mx-auto overflow-hidden"');
+    } else {
+      cleanAttrs += ` class="max-w-full h-auto rounded-xl mx-auto overflow-hidden"`;
+    }
+
     if (!cleanAttrs.includes("referrerpolicy")) {
       cleanAttrs += ` referrerpolicy="no-referrer"`;
     }
@@ -499,7 +516,19 @@ export function processPostContent(
     return `<img${cleanAttrs}>`;
   });
 
-  // 4. Clean empty figures or excessive breaks
+  // 4. Sanitize <figure> and <picture> wrappers to never exceed section width
+  html = html.replace(/<figure([^>]*)>/gi, (match, attrs) => {
+    let cleanAttrs = attrs.replace(/style=["'][^"']*["']/gi, "");
+    cleanAttrs += ` style="max-width: 100% !important; overflow: hidden !important; margin-left: auto; margin-right: auto;"`;
+    if (cleanAttrs.includes('class="') || cleanAttrs.includes("class='")) {
+      cleanAttrs = cleanAttrs.replace(/class=["']([^"']*)["']/i, 'class="$1 max-w-full overflow-hidden my-6 mx-auto"');
+    } else {
+      cleanAttrs += ` class="max-w-full overflow-hidden my-6 mx-auto"`;
+    }
+    return `<figure${cleanAttrs}>`;
+  });
+
+  // 5. Clean empty figures or excessive breaks
   html = html
     .replace(/<figure[^>]*>\s*<\/figure>/gi, "")
     .replace(/<p[^>]*>\s*(?:&nbsp;|\s)*<\/p>/gi, "")

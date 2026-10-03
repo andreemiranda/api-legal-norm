@@ -52,7 +52,7 @@ export const NewsCarousel: React.FC<NewsCarouselProps> = ({ news, onSelectNews, 
       id="news-carousel"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
-      className="relative w-full rounded-2xl overflow-hidden bg-slate-950 border border-blue-900/60 shadow-2xl group select-none"
+      className="relative w-full max-w-full rounded-2xl overflow-hidden bg-slate-950 border border-blue-900/60 shadow-2xl group select-none"
     >
       {/* Visual Background with subtle zoom and vibrant natural brightness */}
       <div className="relative h-[360px] sm:h-[420px] md:h-[460px] w-full overflow-hidden bg-slate-900">

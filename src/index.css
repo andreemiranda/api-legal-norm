@@ -21,6 +21,80 @@
 }
 
 /* =========================================================================
+   UNIVERSAL IMAGE & MEDIA CONSTRAINTS - STRICT LAYOUT INTEGRITY
+   Guarantees images, media and WordPress blocks never exceed section/container boundaries
+   ========================================================================= */
+img,
+picture,
+figure,
+video,
+canvas,
+svg {
+  max-width: 100% !important;
+  height: auto;
+  box-sizing: border-box;
+}
+
+/* Strict container containment preventing overflow of elements */
+article,
+section,
+main,
+.prose,
+.article-content,
+#post-detail-page,
+.news-card,
+.card-container,
+.news-feed-item {
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  box-sizing: border-box;
+}
+
+/* WordPress content blocks, captions and embeds */
+.wp-block-image,
+.wp-block-image img,
+.wp-block-embed,
+.wp-block-embed iframe,
+figure.wp-block-image,
+figure.wp-caption,
+.wp-caption,
+.wp-caption img {
+  max-width: 100% !important;
+  width: 100% !important;
+  height: auto !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+
+/* Enforce strict containment on images within prose and article HTML */
+.prose img,
+.prose-invert img,
+.prose figure,
+.prose picture,
+.prose table,
+.prose iframe {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  border-radius: 0.75rem;
+  object-fit: cover;
+  box-sizing: border-box !important;
+}
+
+.prose table,
+.prose iframe,
+.prose video {
+  max-width: 100% !important;
+  width: 100% !important;
+  overflow-x: auto;
+}
+
+/* =========================================================================
    LIGHT MODE COMPLETE TRANSFORMATION - WCAG AA COMPLIANT & JOURNALISTIC AESTHETIC
    ========================================================================= */
 

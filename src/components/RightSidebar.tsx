@@ -34,7 +34,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   );
 
   return (
-    <aside id="right-sidebar" className="w-full space-y-6">
+    <aside id="right-sidebar" className="w-full max-w-full overflow-hidden space-y-6">
       {/* 1. FIRST ITEM: Mandatory Local Weather Banner */}
       <WeatherBanner />
 

@@ -69,7 +69,7 @@ export const HomePage: React.FC<HomePageProps> = ({
   const [layoutMode, setLayoutMode] = useState<"grid" | "list">("list");
 
   return (
-    <div id="home-page" className="space-y-8">
+    <div id="home-page" className="space-y-8 max-w-full overflow-hidden">
       {/* 1. News Carousel (Only on Page 1 and when no search/source filter active) */}
       {currentPage === 1 && !searchTerm && !selectedSourceId && (
         <section aria-label="Carrossel de Notícias Principais">

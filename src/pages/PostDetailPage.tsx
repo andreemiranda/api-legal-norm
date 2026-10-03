@@ -146,7 +146,7 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
   };
 
   return (
-    <article id="post-detail-page" className="max-w-4xl mx-auto space-y-6 pt-2">
+    <article id="post-detail-page" className="max-w-4xl w-full mx-auto space-y-6 pt-2 overflow-hidden px-2 sm:px-0">
       {/* Target anchor for smooth centering */}
       <div ref={headlineRef} className="scroll-mt-6" />
 
@@ -263,13 +263,13 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
 
       {/* Featured Image - Guaranteed and centered */}
       {currentFeaturedImage && (
-        <div className="w-full rounded-2xl overflow-hidden border border-blue-900/40 bg-slate-950 relative shadow-2xl">
+        <div className="w-full max-w-full rounded-2xl overflow-hidden border border-blue-900/40 bg-slate-950 relative shadow-2xl">
           <img
             src={currentFeaturedImage}
             alt={cleanTitle}
             referrerPolicy="no-referrer"
             onError={handleFeaturedImageError}
-            className="w-full h-[320px] sm:h-[440px] object-cover object-center"
+            className="w-full max-w-full h-[320px] sm:h-[440px] object-cover object-center"
           />
           <div className="p-2.5 bg-slate-950 text-[11px] text-slate-400 flex items-center justify-between border-t border-slate-900">
             <span>{post.category || "Notícia"} • Norma Jurídica</span>
@@ -279,10 +279,10 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
       )}
 
       {/* Post Content Body */}
-      <div className="bg-slate-900/90 border border-blue-900/30 rounded-2xl p-6 sm:p-8 space-y-6 text-slate-200 leading-relaxed font-sans text-base">
+      <div className="bg-slate-900/90 border border-blue-900/30 rounded-2xl p-6 sm:p-8 space-y-6 text-slate-200 leading-relaxed font-sans text-base max-w-full overflow-hidden">
         {sanitizedContent ? (
           <div
-            className="prose prose-invert prose-blue max-w-none text-justify space-y-4 [&>p]:text-justify [&>p]:leading-relaxed [&>p]:text-slate-200 [&>p]:text-base [&>h2]:text-xl [&>h2]:font-bold [&>h2]:text-white [&>h3]:text-lg [&>h3]:font-semibold [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>a]:text-blue-400 [&>a]:underline [&_img]:max-w-full [&_img]:rounded-xl [&_img]:my-6 [&_img]:mx-auto [&_figure]:my-6"
+            className="prose prose-invert prose-blue max-w-full overflow-hidden break-words text-justify space-y-4 [&>p]:text-justify [&>p]:leading-relaxed [&>p]:text-slate-200 [&>p]:text-base [&>h2]:text-xl [&>h2]:font-bold [&>h2]:text-white [&>h3]:text-lg [&>h3]:font-semibold [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>a]:text-blue-400 [&>a]:underline [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-xl [&_img]:my-6 [&_img]:mx-auto [&_img]:object-cover [&_figure]:max-w-full [&_figure]:overflow-hidden [&_figure]:my-6"
             dangerouslySetInnerHTML={{ __html: sanitizedContent }}
           />
         ) : (

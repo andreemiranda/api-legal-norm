@@ -1,15 +1,23 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { NewsItem } from "../types";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import {
   isValidApiImageUrl,
   normalizeImageUrl,
   getImageFingerprint,
   areImagesEquivalent,
 } from "./imageOptimizer";
+import { verifyImageSource } from "./imageVerification";
 
 export interface MediaCatalogItem {
   id?: number | string;
+  postId?: number | string | null;
+  slug?: string;
+  alt?: string;
   title?: string;
   link?: string;
   description?: string;
@@ -20,16 +28,67 @@ export interface MediaCatalogItem {
   category?: string;
   site?: string;
   raw?: {
+    slug?: string;
+    alt?: string;
     alt_text?: string;
+    post?: number | string;
+    parent?: number | string;
+    title?: any;
     media_details?: any;
     [key: string]: any;
   };
 }
 
+interface IndexedMediaItem extends MediaCatalogItem {
+  cleanSlug: string;
+  cleanAlt: string;
+  cleanTitle: string;
+  slugTokens: Set<string>;
+  altTokens: Set<string>;
+  titleTokens: Set<string>;
+  normalizedImageUrl: string;
+  imageFingerprint: string;
+}
+
 let inMemoryCatalog: MediaCatalogItem[] = [];
-let slugToMediaMap = new Map<string, MediaCatalogItem[]>();
-let categoryToMediaMap = new Map<string, MediaCatalogItem[]>();
-let sourceToMediaMap = new Map<string, MediaCatalogItem[]>();
+let allIndexedCatalog: IndexedMediaItem[] = [];
+let mediaBySource = new Map<string, IndexedMediaItem[]>();
+let mediaByPostId = new Map<string, IndexedMediaItem[]>();
+let mediaBySlug = new Map<string, IndexedMediaItem[]>();
+
+const STOPWORDS = new Set([
+  "para", "com", "por", "sobre", "apos", "desta", "deste", "como", "mais",
+  "pelo", "pela", "onde", "quando", "noticia", "noticias", "post", "attachment",
+  "uploads", "https", "http", "html", "ghtml", "brasil", "video", "videos",
+  "novo", "nova", "diz", "veja", "saiba", "entre", "ainda", "seus", "suas"
+]);
+
+/**
+ * Tokenizes text into lowercase, accent-stripped words with stopwords filtered.
+ */
+function tokenize(str?: string | null): Set<string> {
+  if (!str || typeof str !== "string") return new Set();
+  const normalized = str
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ");
+
+  const words = normalized.split(/\s+/).filter((w) => w.length > 2 && !STOPWORDS.has(w));
+  return new Set(words);
+}
+
+/**
+ * Computes common token overlap count between two word sets.
+ */
+function tokenOverlap(setA: Set<string>, setB: Set<string>): number {
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let matches = 0;
+  for (const item of setA) {
+    if (setB.has(item)) matches++;
+  }
+  return matches;
+}
 
 export function deduplicateImageList(urls: (string | undefined | null)[]): string[] {
   const result: string[] = [];
@@ -54,7 +113,7 @@ export function deduplicateImageList(urls: (string | undefined | null)[]): strin
   return result;
 }
 
-function extractSlug(urlOrStr?: string | null): string {
+export function extractSlug(urlOrStr?: string | null): string {
   if (!urlOrStr || typeof urlOrStr !== "string") return "";
   const clean = urlOrStr.split("?")[0].replace(/\/+$/, "");
   const parts = clean.split("/").filter(Boolean);
@@ -62,44 +121,80 @@ function extractSlug(urlOrStr?: string | null): string {
 }
 
 function reindexCatalog() {
-  slugToMediaMap.clear();
-  categoryToMediaMap.clear();
-  sourceToMediaMap.clear();
+  allIndexedCatalog = [];
+  mediaBySource.clear();
+  mediaByPostId.clear();
+  mediaBySlug.clear();
 
   for (const m of inMemoryCatalog) {
-    if (!m.imageUrl) continue;
+    if (!m.imageUrl || !isValidApiImageUrl(m.imageUrl)) continue;
 
-    // 1. Index by parent post link / slug
+    const rawSlug = (m.slug || m.raw?.slug || "").trim();
+    const rawAlt = (m.alt || m.raw?.alt_text || m.raw?.alt || "").trim();
+    const rawTitle = (typeof m.title === "string" ? m.title : (m.raw?.title?.rendered || m.raw?.title || "")).trim();
+
+    // Extract slug from link and imageUrl
+    let linkSlug = "";
     if (m.link) {
-      const cleanLink = m.link.split("?")[0].replace(/\/+$/, "");
-      const parts = cleanLink.split("/").filter(Boolean);
+      const parts = m.link.split("?")[0].replace(/\/+$/, "").split("/").filter(Boolean);
       if (parts.length >= 2) {
-        const parentSlug = parts[parts.length - 2].toLowerCase();
-        if (parentSlug.length > 3) {
-          if (!slugToMediaMap.has(parentSlug)) slugToMediaMap.set(parentSlug, []);
-          slugToMediaMap.get(parentSlug)!.push(m);
+        linkSlug = parts[parts.length - 2].toLowerCase(); // In WP: /parent-slug/attachment/media-slug
+        if (linkSlug === "attachment" && parts.length >= 3) {
+          linkSlug = parts[parts.length - 3].toLowerCase();
         }
       }
     }
 
-    // 2. Index by alt text slug
-    const alt = (m.raw?.alt_text || "").toLowerCase().trim();
-    if (alt.length > 4) {
-      const altSlug = alt.replace(/\s+/g, "-");
-      if (!slugToMediaMap.has(altSlug)) slugToMediaMap.set(altSlug, []);
-      slugToMediaMap.get(altSlug)!.push(m);
+    let urlSlug = "";
+    if (m.imageUrl) {
+      const urlParts = m.imageUrl.split("?")[0].replace(/\.[a-z0-9]+$/i, "").split("/").filter(Boolean);
+      urlSlug = urlParts[urlParts.length - 1] || "";
     }
 
-    // 3. Index by category
-    const cat = (m.category || "Notícias").trim();
-    if (!categoryToMediaMap.has(cat)) categoryToMediaMap.set(cat, []);
-    categoryToMediaMap.get(cat)!.push(m);
+    const combinedSlugStr = `${rawSlug} ${linkSlug} ${urlSlug}`.trim();
 
-    // 4. Index by source
+    const indexedItem: IndexedMediaItem = {
+      ...m,
+      slug: rawSlug || linkSlug || urlSlug,
+      alt: rawAlt,
+      title: rawTitle,
+      cleanSlug: combinedSlugStr.toLowerCase(),
+      cleanAlt: rawAlt.toLowerCase(),
+      cleanTitle: rawTitle.toLowerCase(),
+      slugTokens: tokenize(combinedSlugStr),
+      altTokens: tokenize(rawAlt),
+      titleTokens: tokenize(rawTitle),
+      normalizedImageUrl: normalizeImageUrl(m.imageUrl),
+      imageFingerprint: getImageFingerprint(m.imageUrl),
+    };
+
+    allIndexedCatalog.push(indexedItem);
+
+    // Index by Source ID
     const srcKey = String(m.sourceId || m.site || "").trim();
     if (srcKey) {
-      if (!sourceToMediaMap.has(srcKey)) sourceToMediaMap.set(srcKey, []);
-      sourceToMediaMap.get(srcKey)!.push(m);
+      if (!mediaBySource.has(srcKey)) mediaBySource.set(srcKey, []);
+      mediaBySource.get(srcKey)!.push(indexedItem);
+    }
+
+    // Index by parent Post ID
+    const pid = m.postId || m.raw?.post || m.raw?.parent;
+    if (pid) {
+      const pKey = String(pid);
+      if (!mediaByPostId.has(pKey)) mediaByPostId.set(pKey, []);
+      mediaByPostId.get(pKey)!.push(indexedItem);
+    }
+
+    // Index by slug
+    if (rawSlug) {
+      const sKey = rawSlug.toLowerCase();
+      if (!mediaBySlug.has(sKey)) mediaBySlug.set(sKey, []);
+      mediaBySlug.get(sKey)!.push(indexedItem);
+    }
+    if (linkSlug && linkSlug !== rawSlug) {
+      const lKey = linkSlug.toLowerCase();
+      if (!mediaBySlug.has(lKey)) mediaBySlug.set(lKey, []);
+      mediaBySlug.get(lKey)!.push(indexedItem);
     }
   }
 }
@@ -112,9 +207,15 @@ export function initMediaCatalog(initialList?: MediaCatalogItem[]): void {
   }
 
   const possiblePaths = [
+    path.join("/tmp", "mediaCatalog.json"),
     path.join(process.cwd(), "src", "data", "mediaCatalog.json"),
     path.join(process.cwd(), "dist", "data", "mediaCatalog.json"),
     path.join(process.cwd(), "data", "mediaCatalog.json"),
+    path.join(__dirname, "src", "data", "mediaCatalog.json"),
+    path.join(__dirname, "..", "src", "data", "mediaCatalog.json"),
+    path.join(__dirname, "dist", "data", "mediaCatalog.json"),
+    path.join(__dirname, "..", "dist", "data", "mediaCatalog.json"),
+    path.join(__dirname, "data", "mediaCatalog.json"),
   ];
 
   for (const p of possiblePaths) {
@@ -165,8 +266,86 @@ export function extractImagesFromHtml(html?: string | null): string[] {
 }
 
 /**
- * Resolves authentic images for a news item, guaranteeing at least one image
- * and preserving all non-repeated distinct images.
+ * Finds the correct authentic WordPress image for a news item using:
+ * 1. Parent post ID (highest confidence)
+ * 2. Media 'slug' tag matching news item slug / link
+ * 3. Media 'alt' tag matching news title and key subjects
+ * STRICT RULE: Only matches media within the same source and requires verified correlation
+ * to avoid images from one article mistakenly appearing in another!
+ */
+export function findWordPressMediaMatch(item: Partial<NewsItem>): { imageUrl: string; altText: string } | null {
+  if (inMemoryCatalog.length === 0) return null;
+
+  // 1. Direct Post ID match (WordPress parent post)
+  if (item.id) {
+    const postMatches = mediaByPostId.get(String(item.id));
+    if (postMatches && postMatches.length > 0) {
+      const match = postMatches.find((x) => x.imageUrl && isValidApiImageUrl(x.imageUrl));
+      if (match?.imageUrl) {
+        return {
+          imageUrl: match.imageUrl,
+          altText: match.alt || match.title || String(item.title || ""),
+        };
+      }
+    }
+  }
+
+  const srcKey = String(item.sourceId || item.sourceSite || "").trim();
+  const pool = mediaBySource.get(srcKey);
+
+  // Strictly search only within the source pool to prevent cross-source contamination
+  if (!pool || pool.length === 0) {
+    return null;
+  }
+
+  const rawPostSlug = extractSlug(item.link || item.slug || "").toLowerCase();
+  const postSlugTokens = tokenize(rawPostSlug);
+  const titleTokens = tokenize(item.title);
+
+  let bestMatch: IndexedMediaItem | null = null;
+  let bestScore = 0;
+
+  for (const m of pool) {
+    // Check direct slug match
+    if (rawPostSlug && m.cleanSlug && m.cleanSlug.includes(rawPostSlug)) {
+      return {
+        imageUrl: m.imageUrl!,
+        altText: m.alt || m.title || String(item.title || ""),
+      };
+    }
+
+    const slugMatches = tokenOverlap(postSlugTokens, m.slugTokens);
+    const altMatches = tokenOverlap(titleTokens, m.altTokens);
+    const titleMatches = tokenOverlap(titleTokens, m.titleTokens);
+
+    // Weighted matching score prioritizing slug and alt tags as requested
+    const score = (slugMatches * 4) + (altMatches * 4) + (titleMatches * 2);
+
+    // Minimum verification threshold:
+    // Requires at least 2 slug tokens, or 2 alt tokens, or 1 slug + 1 alt token matching!
+    if (
+      score > bestScore &&
+      (slugMatches >= 2 || altMatches >= 2 || (slugMatches >= 1 && altMatches >= 1))
+    ) {
+      bestScore = score;
+      bestMatch = m;
+    }
+  }
+
+  if (bestMatch?.imageUrl) {
+    return {
+      imageUrl: bestMatch.imageUrl,
+      altText: bestMatch.alt || bestMatch.title || String(item.title || ""),
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Resolves authentic images for a news item, guaranteeing at least one image,
+ * correctly associating WordPress images via slug and alt tags,
+ * and strictly preventing images from one news appearing in another.
  */
 export function resolveNewsMedia(item: Partial<NewsItem>): {
   primaryImage: string;
@@ -180,7 +359,13 @@ export function resolveNewsMedia(item: Partial<NewsItem>): {
 
   const rawCandidates: string[] = [];
 
-  // 1. Direct item fields
+  // 1. Check WordPress Image Endpoint via slug and alt tags
+  const wpMatch = findWordPressMediaMatch(item);
+  if (wpMatch?.imageUrl) {
+    rawCandidates.push(wpMatch.imageUrl);
+  }
+
+  // 2. Direct item fields from the article itself
   if (item.thumbnail) rawCandidates.push(item.thumbnail);
   if (item.imageUrl) rawCandidates.push(item.imageUrl);
   if (item.image) rawCandidates.push(item.image);
@@ -189,14 +374,14 @@ export function resolveNewsMedia(item: Partial<NewsItem>): {
   if ((item as any)?.photo) rawCandidates.push((item as any).photo);
   if ((item as any)?.cover) rawCandidates.push((item as any).cover);
 
-  // 2. Enclosure
+  // 3. Enclosure
   const enc = (item as any)?.enclosure;
   if (enc) {
     if (typeof enc === "string") rawCandidates.push(enc);
     else if (typeof enc === "object" && enc.url) rawCandidates.push(enc.url);
   }
 
-  // 3. Embedded images in content and description
+  // 4. Embedded images in content and description
   if (item.content) {
     rawCandidates.push(...extractImagesFromHtml(item.content));
   }
@@ -204,83 +389,39 @@ export function resolveNewsMedia(item: Partial<NewsItem>): {
     rawCandidates.push(...extractImagesFromHtml(item.description));
   }
 
-  // 4. Match against in-memory media catalog
-  if (inMemoryCatalog.length > 0) {
-    const postSlug = extractSlug(item.link || item.slug).toLowerCase();
-    const cleanTitle = officialTitle.toLowerCase();
+  // Filter and deduplicate candidates, rejecting any cross-source swapped images
+  const deduped = deduplicateImageList(rawCandidates);
+  const distinctImages = deduped.filter((img) => {
+    const check = verifyImageSource(img, item);
+    return check.valid;
+  });
 
-    // Direct slug match
-    if (postSlug && slugToMediaMap.has(postSlug)) {
-      const matches = slugToMediaMap.get(postSlug)!;
-      matches.forEach((m) => {
-        if (m.imageUrl) rawCandidates.push(m.imageUrl);
-      });
-    }
-
-    // Title / alt matching
-    if (rawCandidates.length === 0 && cleanTitle.length > 10) {
-      for (const m of inMemoryCatalog) {
-        const alt = (m.raw?.alt_text || "").toLowerCase().trim();
-        const mTitle = (m.title || "").toLowerCase().trim();
-        if (alt && alt.length > 8 && (cleanTitle.includes(alt) || postSlug.includes(alt.replace(/\s+/g, "-")))) {
-          if (m.imageUrl) rawCandidates.push(m.imageUrl);
-          break;
-        }
-        if (mTitle && mTitle.length > 15 && cleanTitle.includes(mTitle)) {
-          if (m.imageUrl) rawCandidates.push(m.imageUrl);
-          break;
-        }
+  // 5. If STILL empty (no image in content and no match in catalog):
+  // Never assign an editorial photo of another news/person!
+  // Fallback cleanly to authentic authorized visual
+  if (distinctImages.length === 0) {
+    const linkHost = (item.link || item.sourceSite || "").toLowerCase();
+    if (linkHost.includes("globo.com") || linkHost.includes("glbimg.com")) {
+      distinctImages.push("https://s2-g1.glbimg.com/FAbgtDgxjSP1NlU5MhFFAbirOeQ=/i.s3.glbimg.com/v1/AUTH_5902ecb793a540d99060c1569f5f0582/internal_photos/bs/2026/G/1/g1-padrao.jpg");
+    } else {
+      const cat = (item.category || "").toLowerCase();
+      if (cat.includes("educa")) {
+        distinctImages.push("https://infoeducacao.com.br/wp-content/uploads/2026/09/118181-3-1.jpg");
+      } else if (cat.includes("finan") || cat.includes("econ")) {
+        distinctImages.push("https://admin.cnnbrasil.com.br/wp-content/uploads/sites/12/2026/09/bolsa-valores-b3.jpg");
+      } else {
+        distinctImages.push("https://admin.cnnbrasil.com.br/wp-content/uploads/sites/12/2026/09/supremo-tribunal-federal-stf.jpg");
       }
     }
   }
 
-  // 5. Fallback if still empty: guarantee topic-relevant image from source or category pool
-  const testValid = deduplicateImageList(rawCandidates);
-  if (testValid.length === 0 && inMemoryCatalog.length > 0) {
-    const srcKey = String(item.sourceId || item.sourceSite || "");
-    const srcPool = sourceToMediaMap.get(srcKey);
-    const catPool = categoryToMediaMap.get(item.category || "");
-    const pool = (srcPool && srcPool.length > 0) ? srcPool : (catPool && catPool.length > 0) ? catPool : inMemoryCatalog;
-
-    let hash = 0;
-    for (let i = 0; i < officialTitle.length; i++) {
-      hash = (hash * 31 + officialTitle.charCodeAt(i)) >>> 0;
-    }
-
-    // Try primary pool
-    let foundImg = "";
-    for (let attempt = 0; attempt < pool.length; attempt++) {
-      const chosen = pool[(hash + attempt) % pool.length];
-      if (chosen?.imageUrl && isValidApiImageUrl(chosen.imageUrl)) {
-        foundImg = chosen.imageUrl;
-        break;
-      }
-    }
-
-    // If still empty, try complete inMemoryCatalog
-    if (!foundImg && inMemoryCatalog.length > 0) {
-      for (let attempt = 0; attempt < inMemoryCatalog.length; attempt++) {
-        const chosen = inMemoryCatalog[(hash + attempt) % inMemoryCatalog.length];
-        if (chosen?.imageUrl && isValidApiImageUrl(chosen.imageUrl)) {
-          foundImg = chosen.imageUrl;
-          break;
-        }
-      }
-    }
-
-    if (foundImg) {
-      rawCandidates.push(foundImg);
-    }
-  }
-
-  // Deduplicate all candidate images (keep 1 if repeated, keep all distinct)
-  const distinctImages = deduplicateImageList(rawCandidates);
   const primaryImage = distinctImages[0] || "";
+  const verifiedAlt = wpMatch?.altText || officialTitle;
 
   return {
     primaryImage,
     images: distinctImages,
-    verifiedAlt: officialTitle,
+    verifiedAlt,
   };
 }
 

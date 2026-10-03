@@ -56,6 +56,8 @@ const TECHNICAL_ASSETS = [
  * Images from these domains MUST NOT be cross-assigned to articles from other domains!
  */
 const DISTINCT_PUBLISHER_DOMAINS = [
+  "g1.globo.com",
+  "globo.com",
   "palmeiras.com.br",
   "admin.cnnbrasil.com.br",
   "cnnbrasil.com.br",

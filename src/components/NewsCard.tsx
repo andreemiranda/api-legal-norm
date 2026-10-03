@@ -42,10 +42,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item, onSelect, layout = "ve
     return (
       <article
         onClick={() => onSelect(item)}
-        className="group cursor-pointer bg-slate-900/70 hover:bg-slate-900 border border-blue-900/30 hover:border-blue-700/60 rounded-xl p-3.5 flex flex-col sm:flex-row gap-4 transition-all duration-200 shadow-sm hover:shadow-md select-none"
+        className="group cursor-pointer bg-slate-900/70 hover:bg-slate-900 border border-blue-900/30 hover:border-blue-700/60 rounded-xl p-3.5 flex flex-col sm:flex-row gap-4 transition-all duration-200 shadow-sm hover:shadow-md select-none max-w-full overflow-hidden"
       >
         {/* Thumbnail - Exclusively content image */}
-        <div className="w-full sm:w-44 h-36 sm:h-32 rounded-lg overflow-hidden shrink-0 relative bg-slate-950 flex items-center justify-center">
+        <div className="w-full sm:w-44 h-36 sm:h-32 rounded-lg overflow-hidden shrink-0 relative bg-slate-950 flex items-center justify-center max-w-full">
           {currentImageSrc ? (
             <img
               src={currentImageSrc}
@@ -102,10 +102,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item, onSelect, layout = "ve
   return (
     <article
       onClick={() => onSelect(item)}
-      className="group cursor-pointer bg-slate-900/70 hover:bg-slate-900 border border-blue-900/30 hover:border-blue-700/60 rounded-xl overflow-hidden flex flex-col transition-all duration-200 shadow-sm hover:shadow-md select-none"
+      className="group cursor-pointer bg-slate-900/70 hover:bg-slate-900 border border-blue-900/30 hover:border-blue-700/60 rounded-xl overflow-hidden flex flex-col transition-all duration-200 shadow-sm hover:shadow-md select-none max-w-full"
     >
       {/* Thumbnail - Exclusively content image */}
-      <div className="w-full h-44 relative bg-slate-950 overflow-hidden flex items-center justify-center">
+      <div className="w-full h-44 relative bg-slate-950 overflow-hidden flex items-center justify-center max-w-full">
         {currentImageSrc ? (
           <img
             src={currentImageSrc}
