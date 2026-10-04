@@ -17,6 +17,7 @@ import { extractTagsForNewsItem, computeTagCounts } from "./src/utils/tagEngine"
 import { verifyNewsImage, resolveAuthenticNewsImage } from "./src/utils/imageVerification";
 import { resolveNewsMedia, initMediaCatalog, getMediaCatalogCount } from "./src/utils/newsMediaResolver";
 import { deduplicateContentImages } from "./src/utils/imageOptimizer";
+import { serverFirebaseManager } from "./src/services/serverFirebaseInstances";
 
 // Automatically load .env
 if (fs.existsSync(path.join(process.cwd(), ".env"))) {
@@ -272,8 +273,8 @@ function resolveDataFilePath(filename: string): string {
     try {
       if (fs.existsSync(c)) {
         const stats = fs.statSync(c);
-        // Protection against 0-byte or corrupted empty files
-        if (stats && stats.size > 2) {
+        // Protection against 0-byte or corrupted empty files (2 bytes allows empty valid JSON '[]' or '{}')
+        if (stats && stats.size >= 2) {
           return c;
         }
       }
@@ -288,12 +289,12 @@ function safeReadJsonFile<T>(filePath: string, fallback: T): { data: T; size: nu
       return { data: fallback, size: 0, mtimeMs: 0 };
     }
     const stats = fs.statSync(filePath);
-    if (!stats || stats.size <= 2) {
+    if (!stats || stats.size < 2) {
       console.warn(`[JSON Database] Arquivo ${filePath} possui 0 bytes ou está corrompido (${stats?.size || 0} bytes). Usando fallback seguro.`);
       return { data: fallback, size: stats?.size || 0, mtimeMs: stats?.mtimeMs || 0 };
     }
     const raw = fs.readFileSync(filePath, "utf-8").trim();
-    if (!raw || raw.length <= 2) {
+    if (!raw || raw.length < 2) {
       return { data: fallback, size: stats.size, mtimeMs: stats.mtimeMs };
     }
     const parsed = JSON.parse(raw);
@@ -314,7 +315,7 @@ function saveJsonDatabaseFile(filename: string, data: any): boolean {
     return false;
   }
   const jsonStr = JSON.stringify(data, null, 2);
-  if (!jsonStr || jsonStr.trim().length <= 2) {
+  if (!jsonStr || jsonStr.trim().length < 2) {
     console.warn(`[JSON Database] JSON string vazia para ${filename}. Operação abortada para evitar arquivo de 0 bytes.`);
     return false;
   }
@@ -332,6 +333,22 @@ function saveJsonDatabaseFile(filename: string, data: any): boolean {
     if (stats.size === 0) {
       throw new Error(`Arquivo gerado com 0 bytes em ${targetPath}`);
     }
+
+    // Sincronizar simultaneamente nas pastas data/ e src/data/
+    const extraLocations = [
+      path.join(process.cwd(), "src", "data", filename),
+      path.join(process.cwd(), "data", filename),
+    ];
+    for (const loc of extraLocations) {
+      if (loc !== targetPath) {
+        try {
+          const locDir = path.dirname(loc);
+          if (!fs.existsSync(locDir)) fs.mkdirSync(locDir, { recursive: true });
+          fs.writeFileSync(loc, jsonStr, "utf-8");
+        } catch {}
+      }
+    }
+
     const key = Object.keys(DATABASE_FILENAMES).find((k) => DATABASE_FILENAMES[k] === filename) || filename;
     dbFileMeta.set(key, {
       key,
@@ -493,14 +510,14 @@ if (fs.existsSync(mediaCatPath)) {
   } catch {}
 }
 
-// Firebase Realtime Database and Sobrescrição Engine (~2.8 GB Storage & ~29.4 GB Traffic across 3 instances)
+// Firebase Realtime Database & Sobrescrição Engine: 3 Instâncias (1 GB espaço e 10 GB tráfego por projeto • 3 GB espaço e 30 GB tráfego total)
 const RTDB_PRIMARY = "https://legal-norm2-default-rtdb.firebaseio.com/news.json";
 const RTDB_MIRROR = "https://legal-norm3-default-rtdb.firebaseio.com/news.json";
 const RTDB_TERTIARY = "https://legal-norm1-default-rtdb.firebaseio.com/news.json";
 const UPSTREAM_API = (process.env.NEWS_API_BASE_URL || "https://news-sources-api.vercel.app") + "/api/news";
 
-const STORAGE_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_STORAGE_LIMIT_BYTES || process.env.FIREBASE_STORAGE_LIMIT_BYTES || "3006477107", 10);
-const TRAFFIC_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_TRAFFIC_LIMIT_BYTES || process.env.FIREBASE_TRAFFIC_LIMIT_BYTES || "31568007987", 10);
+const STORAGE_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_STORAGE_LIMIT_BYTES || process.env.FIREBASE_STORAGE_LIMIT_BYTES || "3221225472", 10); // 3 GB Total (1 GB por instância)
+const TRAFFIC_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_TRAFFIC_LIMIT_BYTES || process.env.FIREBASE_TRAFFIC_LIMIT_BYTES || "32212254720", 10); // 30 GB Total (10 GB por instância)
 
 function processAndApplySobrescricao(rawNews: any[]) {
   if (!Array.isArray(rawNews) || rawNews.length === 0) return;
@@ -573,10 +590,10 @@ function processAndApplySobrescricao(rawNews: any[]) {
     return timeB - timeA;
   });
 
-  // Sobrescrição Engine: Enforce 1.9 GB storage limit
+  // Sobrescrição Engine: Enforce 3 GB global storage limit (1 GB per instance)
   let currentBytes = Buffer.byteLength(JSON.stringify(processed), "utf-8");
   if (currentBytes >= STORAGE_LIMIT_BYTES) {
-    console.warn(`[Sobrescrição Server] Limite de 1.9 GB atingido (${currentBytes} bytes). Executando sobrescrição FIFO...`);
+    console.warn(`[Sobrescrição Server] Limite global de 3 GB atingido (${currentBytes} bytes). Executando sobrescrição FIFO...`);
     while (currentBytes >= STORAGE_LIMIT_BYTES * 0.9 && processed.length > 50) {
       processed.pop(); // Remove oldest
       currentBytes = Buffer.byteLength(JSON.stringify(processed), "utf-8");
@@ -586,11 +603,20 @@ function processAndApplySobrescricao(rawNews: any[]) {
   const previousCount = allNewsData.length;
   allNewsData = processed;
   lastSyncTimestamp = Date.now();
-  console.log(`[RTDB Server] ${allNewsData.length} notícias sincronizadas via Realtime Database (Sobrescrição ativa).`);
+  console.log(`[RTDB Server] ${allNewsData.length} notícias sincronizadas via Realtime Database (Sobrescrição 3GB/30GB ativa nas 3 instâncias).`);
 
   if (previousCount !== allNewsData.length || allNewsData.length > 0) {
     broadcastRealtimeUpdate();
   }
+
+  // Asynchronous authenticated synchronization across the 3 instances
+  Promise.resolve().then(async () => {
+    try {
+      await serverFirebaseManager.syncAllInstances(processed.slice(0, 300));
+    } catch (err: any) {
+      console.warn("[Server Firebase Sync Notice]:", err?.message || err);
+    }
+  });
 }
 
 function broadcastRealtimeUpdate(action: string = "update", item?: any) {
@@ -1436,26 +1462,50 @@ app.get("/api/stats", (_req, res) => {
   });
 });
 
-// 4b. GET /api/firebase/traffic - Status da arquitetura híbrida e rotação 10GB
+// 4b. GET /api/firebase/traffic - Status das 3 instâncias de banco e tráfego (1GB/10GB por instância • 3GB/30GB total)
 app.get("/api/firebase/traffic", (_req, res) => {
-  const primaryDb =
-    process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL || "";
-  const mirrorDb =
-    process.env.NEXT_PUBLIC_FIREBASE_2_DATABASE_URL || process.env.VITE_FIREBASE_2_DATABASE_URL || "";
-
+  const summary = serverFirebaseManager.getSummary();
   res.json({
     success: true,
     data: {
-      architecture: "hybrid_storage_with_multi_project_rotation",
+      architecture: "three_instance_realtime_database_rotation_and_sobrescricao",
       static_in_code_count: allNewsData.length,
-      quota_limit_bytes_per_project: 10 * 1024 * 1024 * 1024, // 10 GB
-      rotation_threshold_bytes: 9 * 1024 * 1024 * 1024, // 9 GB
-      primary_configured: Boolean(primaryDb),
-      mirror_configured: Boolean(mirrorDb),
-      active_threshold: "9GB trigger -> failover to Project 2 (Mirror) -> fallback to Static in-code",
-      google_auth_purpose: "Métricas administrativas e controle de acessos (visitantes leem livremente)",
+      quota_storage_bytes_per_project: 1024 * 1024 * 1024, // 1 GB
+      quota_traffic_bytes_per_project: 10 * 1024 * 1024 * 1024, // 10 GB
+      total_storage_limit_bytes: 3 * 1024 * 1024 * 1024, // 3 GB
+      total_traffic_limit_bytes: 30 * 1024 * 1024 * 1024, // 30 GB
+      summary,
     },
   });
+});
+
+app.get("/api/firebase/instances", (_req, res) => {
+  res.json({
+    success: true,
+    data: serverFirebaseManager.getSummary(),
+  });
+});
+
+app.post("/api/firebase/rotate", (_req, res) => {
+  const next = serverFirebaseManager.cycleReadInstance();
+  res.json({
+    success: true,
+    activeReadInstance: next,
+    summary: serverFirebaseManager.getSummary(),
+  });
+});
+
+app.post("/api/firebase/sync", async (_req, res) => {
+  try {
+    const syncRes = await serverFirebaseManager.syncAllInstances(allNewsData.slice(0, 500));
+    res.json({
+      success: true,
+      result: syncRes,
+      summary: serverFirebaseManager.getSummary(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || String(err) });
+  }
 });
 
 // 4c. GET /api/firebase/config - Retorna configurações públicas das instâncias Firebase em tempo de execução

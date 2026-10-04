@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist/server.js && node -e \"const fs=require('fs'),p=require('path');fs.mkdirSync('dist/data',{recursive:true});if(fs.existsSync('src/data'))fs.readdirSync('src/data').filter(f=>f.endsWith('.json')).forEach(f=>{const s=fs.statSync(p.join('src/data',f));if(s.size>2)fs.copyFileSync(p.join('src/data',f),p.join('dist/data',f));});\"",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist/server.js && node -e \"const fs=require('fs'),p=require('path');fs.mkdirSync('dist/data',{recursive:true});fs.mkdirSync('data',{recursive:true});if(fs.existsSync('src/data'))fs.readdirSync('src/data').filter(f=>f.endsWith('.json')).forEach(f=>{const s=fs.statSync(p.join('src/data',f));if(s.size>=2){fs.copyFileSync(p.join('src/data',f),p.join('dist/data',f));if(!fs.existsSync(p.join('data',f)))fs.copyFileSync(p.join('src/data',f),p.join('data',f));}});\"",
     "start": "node dist/server.js",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
@@ -37,7 +37,6 @@
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "typescript": "~5.8.2"
   }
 }

@@ -27,15 +27,15 @@ import { NEWS_API_CONFIG } from "./newsApiConfig";
 export type TrafficSource = "primary" | "mirror" | "tertiary" | "api";
 export type StorageTarget = "primary" | "mirror" | "tertiary" | "all";
 
-// Operational Limits: ~2.8 GB Storage (+0.9 GB proporcional) & ~29.4 GB Traffic (+9.8 GB proporcional)
-export const TOTAL_STORAGE_LIMIT_BYTES = parseInt(import.meta.env.VITE_FIREBASE_STORAGE_LIMIT_BYTES || "3006477107", 10);
-export const PER_DB_STORAGE_THRESHOLD = Math.floor(TOTAL_STORAGE_LIMIT_BYTES / 3) - (15 * 1024 * 1024); // ~950 MB / 0.9 GB per instance
+// Operational Limits: 1 GB Storage & 10 GB Traffic per instance; 3 GB Storage & 30 GB Traffic total across 3 instances
 export const ONE_GB_IN_BYTES = 1024 * 1024 * 1024;
+export const TOTAL_STORAGE_LIMIT_BYTES = 3 * ONE_GB_IN_BYTES; // 3 GB Total = 3,221,225,472 bytes
+export const PER_DB_STORAGE_THRESHOLD = Math.floor(ONE_GB_IN_BYTES * 0.95); // ~970 MB safety threshold per instance
 export const NINE_FIFTY_MB_IN_BYTES = PER_DB_STORAGE_THRESHOLD;
 
-export const TOTAL_TRAFFIC_LIMIT_BYTES = parseInt(import.meta.env.VITE_FIREBASE_TRAFFIC_LIMIT_BYTES || "31568007987", 10);
-export const PER_DB_TRAFFIC_THRESHOLD = Math.floor(TOTAL_TRAFFIC_LIMIT_BYTES / 3) - (200 * 1024 * 1024); // ~9.8 GB per instance
 export const TEN_GB_IN_BYTES = 10 * 1024 * 1024 * 1024;
+export const TOTAL_TRAFFIC_LIMIT_BYTES = 3 * TEN_GB_IN_BYTES; // 30 GB Total = 32,212,254,720 bytes
+export const PER_DB_TRAFFIC_THRESHOLD = Math.floor(TEN_GB_IN_BYTES * 0.95); // ~9.5 GB safety threshold per instance
 export const NINE_POINT_FIVE_GB_IN_BYTES = PER_DB_TRAFFIC_THRESHOLD;
 
 export interface NewsIndexEntry {
