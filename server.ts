@@ -26,6 +26,7 @@ if (fs.existsSync(path.join(process.cwd(), ".env"))) {
 
 // Default News API configurations directly in code (no manual user input required)
 process.env.NEWS_API_BASE_URL = process.env.NEWS_API_BASE_URL || "https://news-sources-api.vercel.app";
+process.env.NEWS_API_FALLBACK_BASE_URL = process.env.NEWS_API_FALLBACK_BASE_URL || "https://api-news-media.netlify.app";
 process.env.NEWS_API_KEY = process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd";
 
 const app = express();
@@ -651,12 +652,72 @@ setInterval(() => {
   }
 }, 25000);
 
-// Upstream News API Configuration & Realtime Sync Engine (30-minute interval)
-const NEWS_API_BASE_URL = process.env.NEWS_API_BASE_URL || "https://news-sources-api.vercel.app";
+// Upstream News API Configuration & Realtime Sync Engine
+const NEWS_API_BASE_URL = (process.env.NEWS_API_BASE_URL || "https://news-sources-api.vercel.app").replace(/\/+$/, "");
+const NEWS_API_FALLBACK_BASE_URL = (process.env.NEWS_API_FALLBACK_BASE_URL || "https://api-news-media.netlify.app").replace(/\/+$/, "");
 const NEWS_API_KEY = process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd";
 const SYNC_INTERVAL_MS = 2 * 60 * 1000; // 2 minutos para sincronização ágil em tempo real com a API upstream
 
 let isUpstreamSyncing = false;
+let lastRealtimeSyncTime = 0;
+
+/**
+ * Robust upstream fetch with automatic fallback:
+ * 1. Tries primary API (https://news-sources-api.vercel.app)
+ * 2. If it fails, times out, or returns non-200, tries fallback (https://api-news-media.netlify.app)
+ */
+async function fetchSourceNewsWithFallback(sourceId: number | string, limit = 100): Promise<any[]> {
+  const primaryUrl = `${NEWS_API_BASE_URL}/api/news/${sourceId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
+  const fallbackUrl = `${NEWS_API_FALLBACK_BASE_URL}/api/news/${sourceId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
+
+  // 1. Try Primary
+  try {
+    const res = await fetch(primaryUrl, { signal: AbortSignal.timeout(6000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) return data;
+    }
+  } catch (err: any) {
+    // Primary error -> proceed to fallback
+  }
+
+  // 2. Try Fallback API (https://api-news-media.netlify.app)
+  try {
+    const res = await fetch(fallbackUrl, { signal: AbortSignal.timeout(8000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) return data;
+    }
+  } catch (err: any) {
+    console.warn(`[Fallback API] Aviso ao buscar fonte ${sourceId} no fallback:`, err?.message || err);
+  }
+
+  return [];
+}
+
+async function fetchMediaWithFallback(chId: number | string, limit = 100): Promise<any[]> {
+  const primaryUrl = `${NEWS_API_BASE_URL}/api/images/${chId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
+  const fallbackUrl = `${NEWS_API_FALLBACK_BASE_URL}/api/images/${chId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
+
+  try {
+    const res = await fetch(primaryUrl, { signal: AbortSignal.timeout(6000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) return data;
+    }
+  } catch {}
+
+  try {
+    const res = await fetch(fallbackUrl, { signal: AbortSignal.timeout(8000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
+    }
+  } catch {}
+
+  return [];
+}
+
 
 // Function to reload a specific JSON database file when modified or forced
 function reloadDatabaseFile(key: string, force = false): boolean {
@@ -777,42 +838,33 @@ async function syncMediaCatalogFromUpstream() {
   if (!Array.isArray(mediaChannelsData) || mediaChannelsData.length === 0) return;
   try {
     const fetchedMedia: any[] = [];
-    const chunkSize = 5;
+    const chunkSize = 8;
     for (let i = 0; i < mediaChannelsData.length; i += chunkSize) {
       const slice = mediaChannelsData.slice(i, i + chunkSize);
       const results = await Promise.allSettled(
         slice.map(async (ch: any) => {
-          const url = `${NEWS_API_BASE_URL}/api/images/${ch.id}?api_key=${NEWS_API_KEY}&limit=100`;
-          try {
-            const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
-            if (res.ok) {
-              const data = await res.json();
-              if (Array.isArray(data)) {
-                return data.map((item: any) => {
-                  let img = item.imageUrl || item.source_url || item.guid?.rendered || item.link;
-                  if (item.media_details?.sizes?.large?.source_url) {
-                    img = item.media_details.sizes.large.source_url;
-                  } else if (item.media_details?.sizes?.full?.source_url) {
-                    img = item.media_details.sizes.full.source_url;
-                  }
-                  return {
-                    id: item.id,
-                    postId: item.post || item.parent || item.raw?.post || item.raw?.parent || null,
-                    slug: (item.slug || item.raw?.slug || "").trim(),
-                    alt: (item.alt_text || item.alt || item.raw?.alt_text || item.raw?.alt || "").trim(),
-                    title: (item.title?.rendered || item.title || "").trim(),
-                    link: item.link || "",
-                    imageUrl: img,
-                    sourceId: ch.id,
-                    category: ch.category,
-                    site: ch.site,
-                    raw: item,
-                  };
-                }).filter((x: any) => x.imageUrl && typeof x.imageUrl === "string");
-              }
+          const items = await fetchMediaWithFallback(ch.id, 100);
+          return items.map((item: any) => {
+            let img = item.imageUrl || item.source_url || item.guid?.rendered || item.link;
+            if (item.media_details?.sizes?.large?.source_url) {
+              img = item.media_details.sizes.large.source_url;
+            } else if (item.media_details?.sizes?.full?.source_url) {
+              img = item.media_details.sizes.full.source_url;
             }
-          } catch {}
-          return [];
+            return {
+              id: item.id,
+              postId: item.post || item.parent || item.raw?.post || item.raw?.parent || null,
+              slug: (item.slug || item.raw?.slug || "").trim(),
+              alt: (item.alt_text || item.alt || item.raw?.alt_text || item.raw?.alt || "").trim(),
+              title: (item.title?.rendered || item.title || "").trim(),
+              link: item.link || "",
+              imageUrl: img,
+              sourceId: ch.id,
+              category: ch.category,
+              site: ch.site,
+              raw: item,
+            };
+          }).filter((x: any) => x.imageUrl && typeof x.imageUrl === "string");
         })
       );
       for (const r of results) {
@@ -840,43 +892,75 @@ async function syncMediaCatalogFromUpstream() {
   }
 }
 
+/**
+ * Fast real-time upstream sync (2-3 seconds):
+ * Fetches top active sources with fallback to https://api-news-media.netlify.app
+ * and instantly incorporates fresh news items into allNewsData
+ */
+async function syncLatestRealtimeNews(): Promise<number> {
+  const now = Date.now();
+  if (now - lastRealtimeSyncTime < 10000) return 0; // Throttle to 10s
+  lastRealtimeSyncTime = now;
+
+  try {
+    const selectedSources = sourcesData.slice(0, 18);
+    const results = await Promise.allSettled(
+      selectedSources.map(async (source: any) => {
+        const items = await fetchSourceNewsWithFallback(source.id, 25);
+        return items.map((item: any) => ({
+          ...item,
+          sourceId: source.id,
+          sourceSite: source.originalSite || source.site || "Norma Jurídica",
+          category: source.category,
+        }));
+      })
+    );
+
+    const freshItems: any[] = [];
+    for (const r of results) {
+      if (r.status === "fulfilled" && Array.isArray(r.value)) {
+        freshItems.push(...r.value);
+      }
+    }
+
+    if (freshItems.length > 0) {
+      const combined = [...freshItems, ...allNewsData];
+      processAndApplySobrescricao(combined);
+      saveJsonDatabaseFile("newsCache.json", allNewsData);
+      broadcastRealtimeUpdate();
+      return freshItems.length;
+    }
+  } catch (err: any) {
+    console.warn("[Realtime Sync] Erro no sync rápido:", err?.message || err);
+  }
+  return 0;
+}
+
+/**
+ * Full upstream crawl of all 72+ sources with automatic fallback to https://api-news-media.netlify.app
+ */
 async function syncNewsFromUpstreamApi() {
   if (isUpstreamSyncing) return;
   isUpstreamSyncing = true;
-  console.log(`[Upstream News API] Buscando notícias em tempo real direto da API com limit=100 (todas as matérias)...`);
+  console.log(`[Upstream News API] Buscando notícias em tempo real direto da API com fallback Netlify...`);
 
   try {
-    // Sincroniza catálogo de imagens em paralelo
     await syncMediaCatalogFromUpstream();
 
     const rawItems: any[] = [];
-    const chunkSize = 5; // Concorrência balanceada para evitar erros 502/rate-limit
+    const chunkSize = 8;
 
     for (let i = 0; i < sourcesData.length; i += chunkSize) {
       const slice = sourcesData.slice(i, i + chunkSize);
       const results = await Promise.allSettled(
         slice.map(async (source: any) => {
-          const url = `${NEWS_API_BASE_URL}/api/news/${source.id}?api_key=${NEWS_API_KEY}&limit=100`;
-          for (let attempt = 0; attempt <= 2; attempt++) {
-            try {
-              const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-              if (res.ok) {
-                const data = await res.json();
-                if (Array.isArray(data)) {
-                  return data.map((item: any) => ({
-                    ...item,
-                    sourceId: source.id,
-                    sourceSite: source.originalSite || source.site || "Norma Jurídica",
-                    category: source.category, // Categoria estrita da fonte — sem troca de categoria
-                  }));
-                }
-              }
-            } catch (err) {}
-            if (attempt < 2) {
-              await new Promise((r) => setTimeout(r, 1000));
-            }
-          }
-          return [];
+          const items = await fetchSourceNewsWithFallback(source.id, 100);
+          return items.map((item: any) => ({
+            ...item,
+            sourceId: source.id,
+            sourceSite: source.originalSite || source.site || "Norma Jurídica",
+            category: source.category, // Categoria estrita da fonte
+          }));
         })
       );
 
@@ -887,18 +971,18 @@ async function syncNewsFromUpstreamApi() {
       }
     }
 
-    console.log(`[Upstream News API] ${rawItems.length} matérias coletadas em tempo real com limit=100.`);
+    console.log(`[Upstream News API] ${rawItems.length} matérias coletadas em tempo real com suporte a fallback.`);
 
     if (rawItems.length > 0) {
-      // Merge with previous allNewsData to retain deep archive, placing newest items at the top
       const combined = [...rawItems, ...allNewsData];
       processAndApplySobrescricao(combined);
       sourcesMonitoringState.lastCheck = new Date().toISOString();
       sourcesMonitoringState.upstreamConnected = true;
       sourcesMonitoringState.ingestedNewsCount += rawItems.length;
+      lastRealtimeSyncTime = Date.now();
 
-      // Persiste cache no disco / JSON database para inicialização ultrarrápida
       saveJsonDatabaseFile("newsCache.json", allNewsData);
+      broadcastRealtimeUpdate();
     }
   } catch (err: any) {
     console.error("[Upstream News API] Erro ao sincronizar:", err?.message || err);
@@ -925,19 +1009,46 @@ async function initialFirebaseFallback() {
   } catch {}
 }
 
-// Se não carregou do cache, tenta Firebase; e agenda a sincronização upstream em segundo plano
-if (allNewsData.length === 0) {
-  initialFirebaseFallback().then(() => {
-    syncNewsFromUpstreamApi();
-  });
-} else {
-  // Já tem notícias do cache! Roda upstream sync de fundo sem bloquear
-  setTimeout(() => {
-    syncNewsFromUpstreamApi();
-  }, 2000);
+// Ensure news data is loaded in serverless environments (e.g. Vercel)
+async function ensureNewsDataLoaded(): Promise<void> {
+  if (allNewsData.length > 0) return;
+
+  // 1. Try reading from cache file
+  const ok = reloadDatabaseFile("news", true);
+  if (ok && allNewsData.length > 0) return;
+
+  // 2. Try fast real-time sync with fallback
+  await syncLatestRealtimeNews();
+  if (allNewsData.length > 0) return;
+
+  // 3. Try Firebase fallback
+  await initialFirebaseFallback();
+  if (allNewsData.length > 0) return;
+
+  // 4. Try full upstream crawl
+  await syncNewsFromUpstreamApi();
 }
 
-// Periodic real-time upstream sync every 30 minutes
+// Se não carregou do cache, tenta Firebase e upstream com fallback
+if (allNewsData.length === 0) {
+  initialFirebaseFallback().then(() => {
+    syncLatestRealtimeNews().then(() => {
+      syncNewsFromUpstreamApi();
+    });
+  });
+} else {
+  // Já tem notícias do cache! Roda sync em tempo real sem bloquear
+  setTimeout(() => {
+    syncLatestRealtimeNews().then(() => {
+      syncNewsFromUpstreamApi();
+    });
+  }, 1000);
+}
+
+// Sincronização periódica rápida a cada 60s e completa a cada SYNC_INTERVAL_MS
+setInterval(() => {
+  syncLatestRealtimeNews().catch(() => {});
+}, 60 * 1000);
 setInterval(syncNewsFromUpstreamApi, SYNC_INTERVAL_MS);
 
 // Site URL helper for dynamic deployments
@@ -1604,10 +1715,10 @@ app.get("/api/images", async (_req, res) => {
   if (mediaChannelsData && mediaChannelsData.length > 0) {
     return res.json(mediaChannelsData);
   }
-  // Try upstream
+  // Try upstream primary then fallback
   try {
     const upstream = await fetch(
-      `${NEWS_API_BASE_URL}/api/images?api_key=${process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd"}`,
+      `${NEWS_API_BASE_URL}/api/images?api_key=${NEWS_API_KEY}`,
       { signal: AbortSignal.timeout(5000) }
     );
     if (upstream.ok) {
@@ -1615,6 +1726,18 @@ app.get("/api/images", async (_req, res) => {
       return res.json(data);
     }
   } catch {}
+
+  try {
+    const fallback = await fetch(
+      `${NEWS_API_FALLBACK_BASE_URL}/api/images?api_key=${NEWS_API_KEY}`,
+      { signal: AbortSignal.timeout(6000) }
+    );
+    if (fallback.ok) {
+      const data = await fallback.json();
+      return res.json(data);
+    }
+  } catch {}
+
   res.json(mediaPoolData);
 });
 
@@ -1622,14 +1745,27 @@ app.get("/api/images", async (_req, res) => {
 app.get("/api/images/:id", async (req, res) => {
   const idStr = String(req.params.id);
 
-  // 1. Try upstream directly with the synchronized source ID
+  // 1. Try upstream primary then fallback
   try {
     const upstream = await fetch(
-      `${NEWS_API_BASE_URL}/api/images/${encodeURIComponent(idStr)}?api_key=${process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd"}&limit=15`,
+      `${NEWS_API_BASE_URL}/api/images/${encodeURIComponent(idStr)}?api_key=${NEWS_API_KEY}&limit=15`,
       { signal: AbortSignal.timeout(5000) }
     );
     if (upstream.ok) {
       const data = await upstream.json();
+      if (Array.isArray(data) && data.length > 0) {
+        return res.json(data);
+      }
+    }
+  } catch {}
+
+  try {
+    const fallback = await fetch(
+      `${NEWS_API_FALLBACK_BASE_URL}/api/images/${encodeURIComponent(idStr)}?api_key=${NEWS_API_KEY}&limit=15`,
+      { signal: AbortSignal.timeout(6000) }
+    );
+    if (fallback.ok) {
+      const data = await fallback.json();
       if (Array.isArray(data) && data.length > 0) {
         return res.json(data);
       }
@@ -1653,6 +1789,12 @@ app.get("/api/images/:id", async (req, res) => {
 
 // 7. GET /api/news/category/:category and /api/feed/news/category/:category
 app.get(["/api/news/category/:category", "/api/feed/news/category/:category"], async (req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0, s-maxage=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+
+  await ensureNewsDataLoaded();
+
   const rawCat = req.params.category;
   const decodedCat = decodeURIComponent(rawCat).trim();
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -1696,11 +1838,18 @@ app.get(["/api/news/category/:category", "/api/feed/news/category/:category"], a
 });
 
 // 8. GET /api/news and /api/feed/news
-const getNewsHandler = (req: express.Request, res: express.Response) => {
-  // Prevent browser caching of dynamic news data so real-time updates reflect immediately
-  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0");
+const getNewsHandler = async (req: express.Request, res: express.Response) => {
+  // Prevent browser and CDN caching so real-time updates reflect immediately
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0, s-maxage=0");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
+
+  await ensureNewsDataLoaded();
+
+  // Fast real-time upstream sync trigger when requested or stale
+  if (req.query.refresh === "true" || req.query.force === "true" || Date.now() - lastRealtimeSyncTime > 30000) {
+    syncLatestRealtimeNews().catch(() => {});
+  }
 
   const isAll = req.query.all === "true" || req.query.limit === "all";
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -1783,14 +1932,34 @@ app.get("/api/news", getNewsHandler);
 app.get("/api/feed/news", getNewsHandler);
 
 // 9. GET /api/news/:id
-app.get(["/api/news/:id", "/api/feed/news/:id"], (req, res) => {
+app.get(["/api/news/:id", "/api/feed/news/:id"], async (req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0, s-maxage=0");
   const idStr = String(req.params.id);
+
+  await ensureNewsDataLoaded();
+
+  // 1. Matéria individual por ID ou Slug
   const item = allNewsData.find(
     (n) => String(n.id) === idStr || n.slug === idStr || n.slug === `post/${encodeURIComponent(idStr)}`
   );
 
   if (item) {
     return res.json({ success: true, data: item });
+  }
+
+  // 2. Se for um ID numérico de fonte (compatibilidade com /api/news/{sourceId} da upstream)
+  const isNumericSourceId = /^\d+$/.test(idStr);
+  if (isNumericSourceId) {
+    const fromSource = allNewsData.filter((n) => String(n.sourceId) === idStr);
+    if (fromSource.length > 0) {
+      return res.json(fromSource);
+    }
+
+    // Busca ao vivo na upstream com fallback para https://api-news-media.netlify.app
+    const liveItems = await fetchSourceNewsWithFallback(idStr, 100);
+    if (liveItems && liveItems.length > 0) {
+      return res.json(liveItems);
+    }
   }
 
   res.status(404).json({ success: false, error: "Notícia não encontrada" });
@@ -1831,12 +2000,24 @@ app.get("/api/monitoring/sources", (_req: express.Request, res: express.Response
   });
 });
 
-app.post("/api/monitoring/sync", authLimiter, async (_req: express.Request, res: express.Response) => {
+app.post("/api/monitoring/sync", apiLimiter, async (req: express.Request, res: express.Response) => {
+  const isFast = req.query.fast === "true";
+  if (isFast) {
+    const fresh = await syncLatestRealtimeNews();
+    return res.json({
+      success: true,
+      message: `Sincronização rápida em tempo real concluída (${fresh} novas matérias).`,
+      freshCount: fresh,
+      totalNews: allNewsData.length,
+      data: sourcesMonitoringState,
+    });
+  }
   await syncNewsFromUpstreamApi();
   res.json({
     success: true,
-    message: "Sincronização em tempo real das 72 fontes executada com sucesso.",
+    message: "Sincronização em tempo real das fontes executada com sucesso.",
     data: sourcesMonitoringState,
+    totalNews: allNewsData.length,
   });
 });
 

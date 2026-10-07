@@ -130,11 +130,11 @@ function MainPortal() {
       if (!isSilent) setIsLoadingNews(true);
       
       if (forceBackendSync) {
-        // Trigger server-side upstream API synchronization asynchronously
-        fetch("/api/monitoring/sync", { method: "POST" }).catch(() => {});
+        // Trigger server-side upstream API synchronization with Netlify fallback
+        fetch("/api/monitoring/sync?fast=true", { method: "POST" }).catch(() => {});
       }
 
-      const newsRes = await fetch(`/api/news?all=true&_t=${Date.now()}`);
+      const newsRes = await fetch(`/api/news?all=true&_t=${Date.now()}&refresh=true`);
       if (newsRes.ok) {
         const newsJson = await newsRes.json();
         if (newsJson.success && Array.isArray(newsJson.data) && newsJson.data.length > 0) {
@@ -235,11 +235,11 @@ function MainPortal() {
       });
     });
 
-    // 4. Automatic sync a cada 5 minutos
-    const FIVE_MINUTES_MS = 5 * 60 * 1000;
+    // 4. Automatic sync a cada 60 segundos para notícias em tempo real
+    const SIXTY_SECONDS_MS = 60 * 1000;
     const intervalId = setInterval(() => {
       loadLatestRealtimeNews(true, true);
-    }, FIVE_MINUTES_MS);
+    }, SIXTY_SECONDS_MS);
 
     // 5. Automatic sync quando o usuário retorna à aba (visibilitychange)
     const handleVisibilityChange = () => {

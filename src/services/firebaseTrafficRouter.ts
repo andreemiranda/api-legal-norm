@@ -22,7 +22,7 @@ import {
   tertiaryConfig,
 } from "./firebaseConfig";
 import { NewsItem } from "../types";
-import { NEWS_API_CONFIG } from "./newsApiConfig";
+import { NEWS_API_CONFIG, fetchWithUpstreamFallback, NEWS_SOURCE_ENDPOINTS } from "./newsApiConfig";
 
 export type TrafficSource = "primary" | "mirror" | "tertiary" | "api";
 export type StorageTarget = "primary" | "mirror" | "tertiary" | "all";
@@ -818,6 +818,39 @@ class FirebaseTrafficRouter {
       }
     } catch (err) {
       console.warn(`[RTDB Fetch] REST fallback failed:`, err);
+    }
+
+    // 4. Direct Fallback to Upstream APIs (Primary & https://api-news-media.netlify.app)
+    if (this.inMemoryNewsCache.length === 0) {
+      try {
+        const topSources = NEWS_SOURCE_ENDPOINTS.slice(0, 10);
+        const results = await Promise.allSettled(
+          topSources.map(async (src) => {
+            const res = await fetchWithUpstreamFallback(`/api/news/${src.id}`, { limit: 20 });
+            if (res.ok && Array.isArray(res.data)) {
+              return res.data.map((item: any) => ({
+                ...item,
+                sourceId: src.id,
+                category: src.category,
+              }));
+            }
+            return [];
+          })
+        );
+        const fetchedItems: NewsItem[] = [];
+        for (const r of results) {
+          if (r.status === "fulfilled" && Array.isArray(r.value)) {
+            fetchedItems.push(...r.value);
+          }
+        }
+        if (fetchedItems.length > 0) {
+          const merged = this.mergeNewsItems(this.inMemoryNewsCache, fetchedItems);
+          this.inMemoryNewsCache = merged;
+          return { news: merged, sourceUsed: "api" };
+        }
+      } catch (err) {
+        console.warn(`[Upstream Fetch] Direct API fallback failed:`, err);
+      }
     }
 
     // Return in-memory cache if available

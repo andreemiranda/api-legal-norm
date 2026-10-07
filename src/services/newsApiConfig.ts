@@ -31,6 +31,7 @@ function getEnv(key: string, fallback: string = ""): string {
 
 export const NEWS_API_CONFIG = {
   baseUrl: getEnv("NEWS_API_BASE_URL", "https://news-sources-api.vercel.app"),
+  fallbackBaseUrl: getEnv("NEWS_API_FALLBACK_BASE_URL", "https://api-news-media.netlify.app"),
   apiKey: getEnv("NEWS_API_KEY", "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd"),
   endpoints: {
     listAllSources: getEnv("NEWS_API_ENDPOINT_LIST_ALL_SOURCES", "/api/news"),
@@ -168,8 +169,9 @@ export const NEWS_MEDIA_ENDPOINTS: NewsApiMediaEndpoint[] = [
   { index: 31, id: 813947265038471, endpoint: "/api/news/813947265038471", site: "https://news-sources-api.vercel.app/api/news/813947265038471", category: "Justiça" },
 ];
 
-export function buildUpstreamUrl(path: string, params?: Record<string, string | number>): string {
-  const base = NEWS_API_CONFIG.baseUrl.replace(/\/+$/, "");
+export function buildUpstreamUrl(path: string, params?: Record<string, string | number>, useFallback = false): string {
+  const rawBase = useFallback ? NEWS_API_CONFIG.fallbackBaseUrl : NEWS_API_CONFIG.baseUrl;
+  const base = rawBase.replace(/\/+$/, "");
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   const url = new URL(`${base}${cleanPath}`);
   if (NEWS_API_CONFIG.apiKey) {
@@ -184,3 +186,51 @@ export function buildUpstreamUrl(path: string, params?: Record<string, string | 
   }
   return url.toString();
 }
+
+/**
+ * Universal upstream fetch with automatic fallback:
+ * Tries Primary API (https://news-sources-api.vercel.app),
+ * and if that fails or times out, immediately tries Fallback API (https://api-news-media.netlify.app)
+ * with the exact same API key and parameters.
+ */
+export async function fetchWithUpstreamFallback(
+  path: string,
+  params?: Record<string, string | number>,
+  options: RequestInit = {}
+): Promise<{ ok: boolean; status: number; data: any; sourceUsed: "primary" | "fallback" }> {
+  const primaryUrl = buildUpstreamUrl(path, params, false);
+  const fallbackUrl = buildUpstreamUrl(path, params, true);
+
+  // 1. Try Primary API
+  try {
+    const res = await fetch(primaryUrl, {
+      ...options,
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && (!Array.isArray(data) || data.length > 0)) {
+        return { ok: true, status: res.status, data, sourceUsed: "primary" };
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[Upstream API] Falha na API primária (${primaryUrl}):`, err?.message || err);
+  }
+
+  // 2. Try Fallback API (https://api-news-media.netlify.app)
+  try {
+    const res = await fetch(fallbackUrl, {
+      ...options,
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return { ok: true, status: res.status, data, sourceUsed: "fallback" };
+    }
+  } catch (err: any) {
+    console.error(`[Upstream API] Falha também na API de fallback (${fallbackUrl}):`, err?.message || err);
+  }
+
+  return { ok: false, status: 502, data: null, sourceUsed: "fallback" };
+}
+

@@ -30,6 +30,7 @@ export const SourcesModal: React.FC<SourcesModalProps> = ({
   };
 
   const apiBase = NEWS_API_CONFIG.baseUrl || "https://news-sources-api.vercel.app";
+  const fallbackBase = NEWS_API_CONFIG.fallbackBaseUrl || "https://api-news-media.netlify.app";
   const categories = Array.from(new Set(sources.map((s) => s.category))).sort();
 
   const filteredSources = sources.filter((s) => {
@@ -72,7 +73,7 @@ export const SourcesModal: React.FC<SourcesModalProps> = ({
                 Fontes e Endpoints Integrados
               </h3>
               <p className="text-xs text-blue-300/70">
-                Rotas de API ativas e catalogadas via <span className="font-mono text-blue-200">{apiBase}</span>
+                Rotas de API ativas via <span className="font-mono text-blue-200">{apiBase}</span> | Fallback: <span className="font-mono text-emerald-300">{fallbackBase}</span>
               </p>
             </div>
           </div>

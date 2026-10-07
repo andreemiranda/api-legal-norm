@@ -194,7 +194,7 @@ export function buildCategoryFeed(
   }
 
   // 3. Garantia Universal Absoluta: Nenhuma categoria ou editoria fica sem notícias
-  if (categoryItems.length < 12) {
+  if (categoryItems.length < 50 && allAvailableNews.length > 0) {
     for (const item of allAvailableNews) {
       const key = String(item.id || item.slug || item.title);
       if (seenKeys.has(key)) continue;
@@ -207,7 +207,7 @@ export function buildCategoryFeed(
         tags,
       });
 
-      if (categoryItems.length >= 30) break;
+      if (categoryItems.length >= 60) break;
     }
   }
 
