@@ -654,7 +654,7 @@ setInterval(() => {
 // Upstream News API Configuration & Realtime Sync Engine (30-minute interval)
 const NEWS_API_BASE_URL = process.env.NEWS_API_BASE_URL || "https://news-sources-api.vercel.app";
 const NEWS_API_KEY = process.env.NEWS_API_KEY || "bn_88feb5baa3f84955677e8c11453aae352811b9fe6c3398cd";
-const SYNC_INTERVAL_MS = 30 * 60 * 1000; // 30 minutos
+const SYNC_INTERVAL_MS = 2 * 60 * 1000; // 2 minutos para sincronização ágil em tempo real com a API upstream
 
 let isUpstreamSyncing = false;
 

@@ -211,22 +211,9 @@ export const HomePage: React.FC<HomePageProps> = ({
             <p className="text-xs">Sincronizando notícias da rede...</p>
           </div>
         ) : news.length === 0 ? (
-          <div className="py-16 text-center bg-slate-900/50 rounded-2xl border border-slate-800 p-6 my-6">
-            <Filter className="w-10 h-10 text-slate-500 mx-auto mb-3" />
-            <h3 className="font-serif text-lg font-bold text-white">Nenhuma notícia encontrada</h3>
-            <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
-              Não foram encontradas matérias com os filtros atuais. Tente buscar outros termos ou selecione "Todas as Notícias".
-            </p>
-            <button
-              onClick={() => {
-                onSelectCategory("Todas");
-                onClearSearch();
-                onClearSourceFilter();
-              }}
-              className="mt-4 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
-            >
-              Limpar Filtros e Ver Todas
-            </button>
+          <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-400">
+            <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+            <p className="text-xs">Carregando matérias da editoria...</p>
           </div>
         ) : (
           /* News Feed Grid or List */

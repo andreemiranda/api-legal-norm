@@ -125,7 +125,7 @@ export function buildCategoryFeed(
     };
   }
 
-  // 1. Direct matches strictly by category - NO mixing with other categories
+  // 1. Direct matches strictly by category
   const directMatches = allAvailableNews.filter(
     (item) => normalize(item.category) === normTarget
   );
@@ -143,8 +143,71 @@ export function buildCategoryFeed(
         : extractTagsForNewsItem(item);
       categoryItems.push({
         ...item,
+        category: categoryName,
         tags,
       });
+    }
+  }
+
+  // 2. Se a categoria tiver poucas matérias (< 24) ou zero (ex: "Campos Gerais e Sul do Paraná"),
+  // busca por correspondência semântica e regional para garantir cobertura completa
+  if (categoryItems.length < 24) {
+    const keywords = normTarget
+      .split(/[\s,–-]+/)
+      .filter((w) => w.length > 3 && !["para", "com", "sul", "norte", "leste", "oeste", "regiao", "vale", "gerais"].includes(w));
+
+    for (const item of allAvailableNews) {
+      const key = String(item.id || item.slug || item.title);
+      if (seenKeys.has(key)) continue;
+
+      const itemCat = normalize(item.category);
+      const textToSearch = `${itemCat} ${normalize(item.title || "")} ${normalize(item.description || "")}`;
+
+      let matched = false;
+      if (normTarget.includes("parana") && (itemCat.includes("parana") || textToSearch.includes("parana") || textToSearch.includes("curitiba") || textToSearch.includes("ponta grossa") || textToSearch.includes("campos gerais"))) {
+        matched = true;
+      } else if (normTarget.includes("minas") && (itemCat.includes("minas") || textToSearch.includes("minas") || textToSearch.includes("belo horizonte") || textToSearch.includes("juiz de fora"))) {
+        matched = true;
+      } else if (normTarget.includes("fluminense") && (itemCat.includes("fluminense") || textToSearch.includes("fluminense") || textToSearch.includes("rio de janeiro") || textToSearch.includes("campos"))) {
+        matched = true;
+      } else if (normTarget.includes("tocantins") && (itemCat.includes("tocantins") || textToSearch.includes("palmas") || textToSearch.includes("araguaina"))) {
+        matched = true;
+      } else if (normTarget.includes("paulista") || normTarget.includes("campinas") || normTarget.includes("bauru") || normTarget.includes("santos") || normTarget.includes("ribeirao") || normTarget.includes("sao carlos") || normTarget.includes("mogi")) {
+        if (itemCat.includes("sao paulo") || textToSearch.includes("sao paulo") || textToSearch.includes("paulista")) {
+          matched = true;
+        }
+      } else if (keywords.some((kw) => textToSearch.includes(kw))) {
+        matched = true;
+      }
+
+      if (matched) {
+        seenKeys.add(key);
+        const tags = item.tags && item.tags.length > 0 ? item.tags : extractTagsForNewsItem(item);
+        categoryItems.push({
+          ...item,
+          category: categoryName,
+          tags,
+        });
+        if (categoryItems.length >= 100) break;
+      }
+    }
+  }
+
+  // 3. Garantia Universal Absoluta: Nenhuma categoria ou editoria fica sem notícias
+  if (categoryItems.length < 12) {
+    for (const item of allAvailableNews) {
+      const key = String(item.id || item.slug || item.title);
+      if (seenKeys.has(key)) continue;
+
+      seenKeys.add(key);
+      const tags = item.tags && item.tags.length > 0 ? item.tags : extractTagsForNewsItem(item);
+      categoryItems.push({
+        ...item,
+        category: categoryName,
+        tags,
+      });
+
+      if (categoryItems.length >= 30) break;
     }
   }
 

@@ -1,5 +1,5 @@
 import { updateClientSEO } from "./utils/seoUtils";
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { NewsItem, CategoryItem, NewsSource } from "./types";
 import { ConsentProvider } from "./context/ConsentContext";
 import { Header } from "./components/Header";
@@ -11,6 +11,7 @@ import { SourcesModal } from "./components/SourcesModal";
 import { AdminMetricsModal } from "./components/AdminMetricsModal";
 import { trafficRouter } from "./services/firebaseTrafficRouter";
 import { firebaseAuthService, AdminUserState } from "./services/firebaseAuthService";
+import { RefreshCw } from "lucide-react";
 
 import { HomePage } from "./pages/HomePage";
 import { PostDetailPage } from "./pages/PostDetailPage";
@@ -64,6 +65,11 @@ function MainPortal() {
   const [selectedSourceId, setSelectedSourceId] = useState<number | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState<string>("");
 
+  // Realtime updates buffer state:
+  // As novidades chegam continuamente da API em segundo plano, mas só aparecem na próxima atualização ou reinício de página
+  const [pendingNews, setPendingNews] = useState<NewsItem[] | null>(null);
+  const [newArticlesCount, setNewArticlesCount] = useState<number>(0);
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState<number>(1);
   const perPage = 12;
@@ -76,6 +82,18 @@ function MainPortal() {
   const [isSourcesModalOpen, setIsSourcesModalOpen] = useState<boolean>(false);
   const [isAdminMetricsOpen, setIsAdminMetricsOpen] = useState<boolean>(false);
   const [authState, setAuthState] = useState<AdminUserState>(firebaseAuthService.getUserState());
+
+  const applyPendingRealtimeNews = useCallback(() => {
+    if (pendingNews && pendingNews.length > 0) {
+      setNews(pendingNews);
+      setPendingNews(null);
+      setNewArticlesCount(0);
+      try {
+        localStorage.removeItem("norma_pending_realtime_news");
+      } catch {}
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [pendingNews]);
 
   useEffect(() => {
     const unsub = firebaseAuthService.subscribe((state) => {
@@ -106,7 +124,7 @@ function MainPortal() {
     } catch {}
   }, [authState.isAdmin]);
 
-  // Realtime news loader from upstream API with 30-minute auto-refresh & visibilitychange
+  // Realtime news loader from upstream API with background sync & visibilitychange
   const loadLatestRealtimeNews = useCallback(async (isSilent = false, forceBackendSync = false) => {
     try {
       if (!isSilent) setIsLoadingNews(true);
@@ -120,14 +138,40 @@ function MainPortal() {
       if (newsRes.ok) {
         const newsJson = await newsRes.json();
         if (newsJson.success && Array.isArray(newsJson.data) && newsJson.data.length > 0) {
-          setNews(sortNewsChronological(deduplicateNews(newsJson.data)));
+          const freshData = sortNewsChronological(deduplicateNews(newsJson.data));
+          
+          if (isSilent) {
+            setNews((curr) => {
+              if (curr.length === 0) return freshData;
+              const currentIds = new Set(curr.map((n) => String(n.id || n.slug || n.title)));
+              const diff = freshData.filter((n) => !currentIds.has(String(n.id || n.slug || n.title)));
+              if (diff.length > 0) {
+                setPendingNews(freshData);
+                setNewArticlesCount(diff.length);
+                try {
+                  localStorage.setItem("norma_pending_realtime_news", JSON.stringify(freshData));
+                } catch {}
+              }
+              return curr;
+            });
+          } else {
+            setNews(freshData);
+          }
           return;
         }
       }
       // Hybrid fallback
       const hybridResult = await trafficRouter.fetchNews(true);
       if (hybridResult && hybridResult.news && hybridResult.news.length > 0) {
-        setNews(sortNewsChronological(deduplicateNews(hybridResult.news)));
+        const fallbackData = sortNewsChronological(deduplicateNews(hybridResult.news));
+        if (isSilent) {
+          setNews((curr) => {
+            if (curr.length === 0) return fallbackData;
+            return curr;
+          });
+        } else {
+          setNews(fallbackData);
+        }
       }
     } catch (err) {
       console.warn("Realtime sync notice:", err);
@@ -137,6 +181,18 @@ function MainPortal() {
   }, []);
 
   useEffect(() => {
+    // 0. Ao iniciar/reiniciar a página, aplica imediatamente as matérias pendentes acumuladas em tempo real
+    try {
+      const stored = localStorage.getItem("norma_pending_realtime_news");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setNews(sortNewsChronological(deduplicateNews(parsed)));
+          localStorage.removeItem("norma_pending_realtime_news");
+        }
+      }
+    } catch {}
+
     // 1. Initial news fetch directly from real-time server
     loadLatestRealtimeNews();
 
@@ -150,20 +206,42 @@ function MainPortal() {
       })
       .catch(() => {});
 
-    // 3. Realtime SSE / listener
+    // 3. Realtime SSE / listener: recebe atualizações contínuas em tempo real da API
     const unsubscribeRealtime = trafficRouter.subscribeToRealtimeNews((updatedNews) => {
-      if (updatedNews && updatedNews.length > 0) {
-        setNews(sortNewsChronological(deduplicateNews(updatedNews)));
-      }
+      if (!updatedNews || updatedNews.length === 0) return;
+      const sorted = sortNewsChronological(deduplicateNews(updatedNews));
+
+      setNews((currentNews) => {
+        // Se ainda não há notícias na tela, exibe imediatamente
+        if (currentNews.length === 0) {
+          return sorted;
+        }
+
+        // Se o leitor já está navegando, detecta as novidades e agenda para a próxima atualização ou reinício de página
+        const currentIds = new Set(currentNews.map((n) => String(n.id || n.slug || n.title)));
+        const freshItems = sorted.filter((n) => !currentIds.has(String(n.id || n.slug || n.title)));
+
+        if (freshItems.length > 0) {
+          setPendingNews(sorted);
+          setNewArticlesCount(freshItems.length);
+          try {
+            localStorage.setItem("norma_pending_realtime_news", JSON.stringify(sorted));
+          } catch {}
+          // Mantém as matérias atuais na tela para não interromper a leitura
+          return currentNews;
+        }
+
+        return currentNews;
+      });
     });
 
-    // 4. Automatic sync every 30 minutes
-    const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+    // 4. Automatic sync a cada 5 minutos
+    const FIVE_MINUTES_MS = 5 * 60 * 1000;
     const intervalId = setInterval(() => {
       loadLatestRealtimeNews(true, true);
-    }, THIRTY_MINUTES_MS);
+    }, FIVE_MINUTES_MS);
 
-    // 5. Automatic sync when user returns to the tab (visibilitychange)
+    // 5. Automatic sync quando o usuário retorna à aba (visibilitychange)
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         loadLatestRealtimeNews(true, true);
@@ -186,7 +264,7 @@ function MainPortal() {
 
   // Filtered and sorted news (Category feed + tag filter + source + search)
   const filteredNews = useMemo(() => {
-    // Pesquisa: agora procura em TODO o acervo (por matérias), não só na editoria aberta!
+    // Pesquisa: agora procura em TODO o acervo (por matérias)
     if (searchTerm.trim()) {
       let searched = searchNews(news, searchTerm);
       if (selectedTag) {
@@ -197,6 +275,10 @@ function MainPortal() {
       if (selectedSourceId) {
         searched = searched.filter((item) => item.sourceId === selectedSourceId);
       }
+      // Se não encontrar termos exatos na busca, exibe as principais da editoria para nunca deixar sem notícias
+      if (searched.length === 0 && categoryFeed.items.length > 0) {
+        return categoryFeed.items;
+      }
       return searched;
     }
 
@@ -204,14 +286,20 @@ function MainPortal() {
 
     // Filter by Tag
     if (selectedTag) {
-      result = result.filter((item) =>
+      const filteredByTag = result.filter((item) =>
         item.tags?.some((t) => t.toLowerCase() === selectedTag.toLowerCase())
       );
+      if (filteredByTag.length > 0) {
+        result = filteredByTag;
+      }
     }
 
     // Filter by Source ID
     if (selectedSourceId) {
-      result = result.filter((item) => item.sourceId === selectedSourceId);
+      const filteredBySource = result.filter((item) => item.sourceId === selectedSourceId);
+      if (filteredBySource.length > 0) {
+        result = filteredBySource;
+      }
     }
 
     // If specific category is selected, sort strictly chronologically (newest first)
@@ -223,6 +311,11 @@ function MainPortal() {
         const timeB = b.pubDate ? new Date(b.pubDate).getTime() : 0;
         return timeB - timeA;
       });
+    }
+
+    // Garantia absoluta: nenhuma editoria fica sem notícias exibidas
+    if (result.length === 0 && categoryFeed.items.length > 0) {
+      return categoryFeed.items;
     }
 
     return result;
@@ -252,6 +345,15 @@ function MainPortal() {
 
   // Handler to navigate between pages
   const handleNavigate = (view: string) => {
+    // Aplica notícias atualizadas em tempo real na próxima navegação
+    if (pendingNews && pendingNews.length > 0) {
+      setNews(pendingNews);
+      setPendingNews(null);
+      setNewArticlesCount(0);
+      try {
+        localStorage.removeItem("norma_pending_realtime_news");
+      } catch {}
+    }
     setCurrentView(view);
     if (view === "home") {
       handleRotateFeed();
@@ -288,6 +390,15 @@ function MainPortal() {
 
   // Handler when selecting a category
   const handleSelectCategory = (category: string) => {
+    // Aplica notícias atualizadas em tempo real na próxima navegação de categoria
+    if (pendingNews && pendingNews.length > 0) {
+      setNews(pendingNews);
+      setPendingNews(null);
+      setNewArticlesCount(0);
+      try {
+        localStorage.removeItem("norma_pending_realtime_news");
+      } catch {}
+    }
     setSelectedCategory(category);
     setSelectedTag(null);
     setCurrentPage(1);
@@ -497,6 +608,36 @@ function MainPortal() {
         onOpenSourcesModal={() => setIsSourcesModalOpen(true)}
         onOpenMetrics={() => setIsAdminMetricsOpen(true)}
       />
+
+      {/* 1b. Realtime Updates Available Alert / Notification Bar */}
+      {newArticlesCount > 0 && (
+        <aside
+          aria-label="Notícias atualizadas em tempo real"
+          className="bg-gradient-to-r from-blue-950 via-slate-900 to-blue-950 border-b border-blue-500/40 px-4 py-2 text-xs text-slate-200 shadow-lg sticky top-0 z-40 backdrop-blur-md"
+        >
+          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500"></span>
+              </span>
+              <span className="font-semibold text-white">
+                {newArticlesCount} {newArticlesCount === 1 ? "nova matéria atualizada" : "novas matérias atualizadas"} em tempo real de acordo com a API.
+              </span>
+              <span className="hidden md:inline text-slate-400 text-[11px]">
+                (As notícias serão exibidas na próxima atualização ou ao reiniciar a página)
+              </span>
+            </div>
+            <button
+              onClick={applyPendingRealtimeNews}
+              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs flex items-center gap-1.5 shadow transition-all hover:scale-105 active:scale-95 cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Carregar Agora
+            </button>
+          </div>
+        </aside>
+      )}
 
       {/* 2. Main Layout Container: Content Area (left) + Right Sidebar */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8">
