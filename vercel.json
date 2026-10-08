@@ -40,6 +40,10 @@
       "destination": "/api/index"
     },
     {
+      "source": "/_next/image",
+      "destination": "/api/index"
+    },
+    {
       "source": "/next_imagem",
       "destination": "/api/index"
     },

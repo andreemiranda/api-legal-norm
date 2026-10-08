@@ -17,6 +17,7 @@ import { extractTagsForNewsItem, computeTagCounts } from "./src/utils/tagEngine"
 import { verifyNewsImage, resolveAuthenticNewsImage } from "./src/utils/imageVerification";
 import { resolveNewsMedia, initMediaCatalog, getMediaCatalogCount } from "./src/utils/newsMediaResolver";
 import { deduplicateContentImages } from "./src/utils/imageOptimizer";
+import { generateFullImageSitemapXml } from "./src/components/OptimizedImage";
 import { serverFirebaseManager } from "./src/services/serverFirebaseInstances";
 
 // Automatically load .env
@@ -897,9 +898,9 @@ async function syncMediaCatalogFromUpstream() {
  * Fetches top active sources with fallback to https://api-news-media.netlify.app
  * and instantly incorporates fresh news items into allNewsData
  */
-async function syncLatestRealtimeNews(): Promise<number> {
+async function syncLatestRealtimeNews(force = false): Promise<number> {
   const now = Date.now();
-  if (now - lastRealtimeSyncTime < 10000) return 0; // Throttle to 10s
+  if (!force && now - lastRealtimeSyncTime < 10000) return 0; // Throttle to 10s unless forced
   lastRealtimeSyncTime = now;
 
   try {
@@ -1089,9 +1090,9 @@ function sendFallbackImage(res: express.Response, redirectUrl?: string) {
 }
 
 // -------------------------------------------------------------
-// Image Proxy Endpoint: /next_imagem
+// Image Proxy Endpoint: /_next/image, /next_imagem, /next_image
 // -------------------------------------------------------------
-app.get(["/next_imagem", "/next_image"], async (req, res) => {
+app.get(["/_next/image", "/next_imagem", "/next_image"], async (req, res) => {
   const rawUrl = req.query.url as string;
   if (!rawUrl) {
     return sendFallbackImage(res);
@@ -1846,9 +1847,11 @@ const getNewsHandler = async (req: express.Request, res: express.Response) => {
 
   await ensureNewsDataLoaded();
 
-  // Fast real-time upstream sync trigger when requested or stale
-  if (req.query.refresh === "true" || req.query.force === "true" || Date.now() - lastRealtimeSyncTime > 30000) {
-    syncLatestRealtimeNews().catch(() => {});
+  // Fast real-time upstream sync trigger when requested or stale (awaiting ensures serverless platforms like Vercel incorporate updates before response)
+  if (req.query.refresh === "true" || req.query.force === "true" || req.query.realtime === "true" || Date.now() - lastRealtimeSyncTime > 30000) {
+    try {
+      await syncLatestRealtimeNews(true);
+    } catch {}
   }
 
   const isAll = req.query.all === "true" || req.query.limit === "all";
@@ -2652,26 +2655,12 @@ ${urls}</urlset>`;
   res.type("application/xml").send(xml);
 });
 
-// /sitemap-images.xml
-app.get("/sitemap-images.xml", (req, res) => {
+// /sitemap-images.xml - Includes all images from the API connected to news in optimized pattern: /_next/image?url=[url_image]
+app.get("/sitemap-images.xml", async (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+  await ensureNewsDataLoaded();
   const siteUrl = getSiteUrl(req);
-  let urls = "";
-  for (const item of allNewsData.slice(0, 100)) {
-    const cleanTitle = (item.title || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const imgUrl = item.thumbnail || item.imageUrl;
-    urls += `  <url>
-    <loc>${siteUrl}/${item.slug}</loc>
-    <image:image xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
-      <image:loc>${siteUrl}/next_imagem?url=${encodeURIComponent(imgUrl)}</image:loc>
-      <image:title>${cleanTitle}</image:title>
-    </image:image>
-  </url>\n`;
-  }
-
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<?xml-stylesheet type="text/xsl" href="/sitemap.xsl"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls}</urlset>`;
+  const xml = generateFullImageSitemapXml(allNewsData, siteUrl);
   res.type("application/xml").send(xml);
 });
 

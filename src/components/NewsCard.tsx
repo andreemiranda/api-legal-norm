@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { NewsItem } from "../types";
 import { extractPostImages } from "../utils/imageOptimizer";
+import { OptimizedImage } from "./OptimizedImage";
 import { formatRelativeTime, stripHtml, calculateReadingTime } from "../utils/date";
 import { Clock, ArrowUpRight } from "lucide-react";
 
@@ -47,11 +48,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item, onSelect, layout = "ve
         {/* Thumbnail - Exclusively content image */}
         <div className="w-full sm:w-44 h-36 sm:h-32 rounded-lg overflow-hidden shrink-0 relative bg-slate-950 flex items-center justify-center max-w-full">
           {currentImageSrc ? (
-            <img
+            <OptimizedImage
               src={currentImageSrc}
               alt={cleanTitle}
               loading="lazy"
-              referrerPolicy="no-referrer"
               onError={handleImageError}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             />
@@ -107,11 +107,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item, onSelect, layout = "ve
       {/* Thumbnail - Exclusively content image */}
       <div className="w-full h-44 relative bg-slate-950 overflow-hidden flex items-center justify-center max-w-full">
         {currentImageSrc ? (
-          <img
+          <OptimizedImage
             src={currentImageSrc}
             alt={cleanTitle}
             loading="lazy"
-            referrerPolicy="no-referrer"
             onError={handleImageError}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />

@@ -821,7 +821,7 @@ class FirebaseTrafficRouter {
     }
 
     // 4. Direct Fallback to Upstream APIs (Primary & https://api-news-media.netlify.app)
-    if (this.inMemoryNewsCache.length === 0) {
+    if (forceFresh || this.inMemoryNewsCache.length === 0) {
       try {
         const topSources = NEWS_SOURCE_ENDPOINTS.slice(0, 10);
         const results = await Promise.allSettled(

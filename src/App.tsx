@@ -193,8 +193,8 @@ function MainPortal() {
       }
     } catch {}
 
-    // 1. Initial news fetch directly from real-time server
-    loadLatestRealtimeNews();
+    // 1. Initial news fetch directly from real-time server (forces backend sync & upstream fallback)
+    loadLatestRealtimeNews(false, true);
 
     // 2. Categories load
     fetch("/api/categories")

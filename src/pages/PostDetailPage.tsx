@@ -7,6 +7,7 @@ import {
   normalizeImageUrl,
   areImagesEquivalent,
 } from "../utils/imageOptimizer";
+import { OptimizedImage } from "../components/OptimizedImage";
 import { formatDatePtBR, calculateReadingTime, stripHtml } from "../utils/date";
 import { AdSenseBanner } from "../components/AdSenseBanner";
 import {
@@ -264,11 +265,11 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
       {/* Featured Image - Guaranteed and centered */}
       {currentFeaturedImage && (
         <div className="w-full max-w-full rounded-2xl overflow-hidden border border-blue-900/40 bg-slate-950 relative shadow-2xl">
-          <img
+          <OptimizedImage
             src={currentFeaturedImage}
             alt={cleanTitle}
-            referrerPolicy="no-referrer"
             onError={handleFeaturedImageError}
+            priority={true}
             className="w-full max-w-full h-[320px] sm:h-[440px] object-cover object-center"
           />
           <div className="p-2.5 bg-slate-950 text-[11px] text-slate-400 flex items-center justify-between border-t border-slate-900">
@@ -300,10 +301,9 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
             <div className={`grid gap-4 ${additionalGalleryImages.length === 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>
               {additionalGalleryImages.map((imgUrl, i) => (
                 <div key={i} className="rounded-xl overflow-hidden border border-blue-900/30 bg-slate-950 shadow-md">
-                  <img
+                  <OptimizedImage
                     src={imgUrl}
                     alt={`${cleanTitle} - Imagem ${i + 2}`}
-                    referrerPolicy="no-referrer"
                     className="w-full h-56 sm:h-64 object-cover object-center hover:scale-105 transition-transform duration-300"
                   />
                   <div className="p-2 bg-slate-950 text-[11px] text-slate-400">
