@@ -155,7 +155,13 @@ function MainPortal() {
               return curr;
             });
           } else {
-            setNews(freshData);
+            setNews((curr) => {
+              if (curr.length === 0) return freshData;
+              if (curr.length > freshData.length) {
+                return sortNewsChronological(deduplicateNews([...freshData, ...curr]));
+              }
+              return freshData;
+            });
           }
           return;
         }
@@ -170,7 +176,13 @@ function MainPortal() {
             return curr;
           });
         } else {
-          setNews(fallbackData);
+          setNews((curr) => {
+            if (curr.length === 0) return fallbackData;
+            if (curr.length > fallbackData.length) {
+              return sortNewsChronological(deduplicateNews([...fallbackData, ...curr]));
+            }
+            return fallbackData;
+          });
         }
       }
     } catch (err) {
@@ -187,7 +199,7 @@ function MainPortal() {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setNews(sortNewsChronological(deduplicateNews(parsed)));
+          setNews((curr) => sortNewsChronological(deduplicateNews([...parsed, ...curr])));
           localStorage.removeItem("norma_pending_realtime_news");
         }
       }

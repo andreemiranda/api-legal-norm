@@ -268,7 +268,12 @@ class FirebaseTrafficRouter {
 
       const rawCachedNews = sessionStorage.getItem(CACHE_NEWS_KEY);
       if (rawCachedNews) {
-        this.inMemoryNewsCache = JSON.parse(rawCachedNews);
+        try {
+          const parsed = JSON.parse(rawCachedNews);
+          if (Array.isArray(parsed) && parsed.length > this.inMemoryNewsCache.length) {
+            this.inMemoryNewsCache = parsed;
+          }
+        } catch {}
       }
     } catch (e) {
       console.warn("Traffic/Storage persistence load error:", e);
@@ -777,7 +782,7 @@ class FirebaseTrafficRouter {
             const merged = this.mergeNewsItems(this.inMemoryNewsCache, items);
             this.inMemoryNewsCache = merged;
             try {
-              sessionStorage.setItem(CACHE_NEWS_KEY, JSON.stringify(merged.slice(0, 100)));
+              sessionStorage.setItem(CACHE_NEWS_KEY, JSON.stringify(merged));
             } catch {}
             return { news: merged, sourceUsed: currentSource };
           }

@@ -449,7 +449,7 @@ export class ServerFirebaseManager {
         method,
         headers,
         body: serializedBody,
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(60000),
       });
 
       const responseText = await res.text();

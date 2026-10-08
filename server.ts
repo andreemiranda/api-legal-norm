@@ -521,12 +521,19 @@ const UPSTREAM_API = (process.env.NEWS_API_BASE_URL || "https://news-sources-api
 const STORAGE_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_STORAGE_LIMIT_BYTES || process.env.FIREBASE_STORAGE_LIMIT_BYTES || "3221225472", 10); // 3 GB Total (1 GB por instância)
 const TRAFFIC_LIMIT_BYTES = parseInt(process.env.VITE_FIREBASE_TRAFFIC_LIMIT_BYTES || process.env.FIREBASE_TRAFFIC_LIMIT_BYTES || "32212254720", 10); // 30 GB Total (10 GB por instância)
 
+let lastFirebaseSyncTime = 0;
+let isFirebaseSyncing = false;
+
 function processAndApplySobrescricao(rawNews: any[]) {
   if (!Array.isArray(rawNews) || rawNews.length === 0) return;
 
+  // CRITICAL: Always merge incoming news with all existing news in memory!
+  // This guarantees news NEVER restarts or regresses, and prevents broken links!
+  const combinedRaw = allNewsData.length > 0 ? [...rawNews, ...allNewsData] : rawNews;
+
   const seen = new Set<string>();
 
-  let processed = rawNews
+  let processed = combinedRaw
     .map((item: any) => {
       const decodedTitle = cleanEditorialText(decodeHtml(item.title));
       const cleanDesc = cleanEditorialText(decodeHtml(item.description));
@@ -610,20 +617,28 @@ function processAndApplySobrescricao(rawNews: any[]) {
   const previousCount = allNewsData.length;
   allNewsData = processed;
   lastSyncTimestamp = Date.now();
-  console.log(`[RTDB Server] ${allNewsData.length} notícias sincronizadas via Realtime Database (Sobrescrição 3GB/30GB ativa nas 3 instâncias).`);
+  console.log(`[RTDB Server] ${allNewsData.length} notícias preservadas via Realtime Database (Sobrescrição 3GB/30GB ativa nas 3 instâncias).`);
 
   if (previousCount !== allNewsData.length || allNewsData.length > 0) {
     broadcastRealtimeUpdate();
   }
 
-  // Asynchronous authenticated synchronization across the 3 instances
-  Promise.resolve().then(async () => {
-    try {
-      await serverFirebaseManager.syncAllInstances(processed.slice(0, 300));
-    } catch (err: any) {
-      console.warn("[Server Firebase Sync Notice]:", err?.message || err);
-    }
-  });
+  // Asynchronous authenticated synchronization across the 3 instances with rotation/rodízio
+  // Preserves 100% of all news within the 1 GB / 3 GB quota without arbitrary truncations!
+  const now = Date.now();
+  if (!isFirebaseSyncing && (now - lastFirebaseSyncTime > 45000 || previousCount === 0)) {
+    lastFirebaseSyncTime = now;
+    isFirebaseSyncing = true;
+    Promise.resolve().then(async () => {
+      try {
+        await serverFirebaseManager.syncAllInstances(processed);
+      } catch (err: any) {
+        console.warn("[Server Firebase Sync Notice]:", err?.message || err);
+      } finally {
+        isFirebaseSyncing = false;
+      }
+    });
+  }
 }
 
 function broadcastRealtimeUpdate(action: string = "update", item?: any) {
@@ -1035,7 +1050,11 @@ async function ensureNewsDataLoaded(): Promise<void> {
   await syncNewsFromUpstreamApi();
 }
 
-// Se não carregou do cache, tenta Firebase e upstream com fallback
+// Inicialização de notícias: Garante que o catálogo completo com 6300+ matérias seja carregado
+if (allNewsData.length === 0) {
+  loadInitialNewsCache();
+}
+
 if (allNewsData.length === 0) {
   initialFirebaseFallback().then(() => {
     syncLatestRealtimeNews().then(() => {
@@ -1043,7 +1062,7 @@ if (allNewsData.length === 0) {
     });
   });
 } else {
-  // Já tem notícias do cache! Roda sync em tempo real sem bloquear
+  // Já tem notícias do catálogo completo! Roda sync em tempo real e replica para as 3 instâncias Firebase
   setTimeout(() => {
     syncLatestRealtimeNews().then(() => {
       syncNewsFromUpstreamApi();

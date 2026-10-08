@@ -544,10 +544,18 @@ export function processPostContent(
     // Strip disruptive inline styles (e.g. width: 1200px; max-width: none)
     cleanAttrs = cleanAttrs.replace(/style=["'][^"']*["']/gi, "");
 
+    // Ignore emojis (wp-smiley, s.w.org emojis)
+    if (cleanAttrs.includes("wp-smiley") || cleanAttrs.includes("/emoji/") || cleanAttrs.includes('alt="📱"') || cleanAttrs.includes('alt="💻"')) {
+      return match;
+    }
+
+    // Clean any prior duplicate class stack
+    cleanAttrs = cleanAttrs.replace(/(?:max-w-full\s+h-auto\s+rounded-xl\s+mx-auto\s+overflow-hidden\s*)+/gi, "");
+
     // Append strict containment style
     cleanAttrs += ` style="max-width: 100% !important; height: auto !important; display: block; margin-left: auto; margin-right: auto; object-fit: cover;"`;
 
-    // Ensure responsive class
+    // Ensure responsive class idempotently
     if (cleanAttrs.includes('class="') || cleanAttrs.includes("class='")) {
       cleanAttrs = cleanAttrs.replace(/class=["']([^"']*)["']/i, 'class="$1 max-w-full h-auto rounded-xl mx-auto overflow-hidden"');
     } else {
@@ -566,6 +574,7 @@ export function processPostContent(
   // 4. Sanitize <figure> and <picture> wrappers to never exceed section width
   html = html.replace(/<figure([^>]*)>/gi, (match, attrs) => {
     let cleanAttrs = attrs.replace(/style=["'][^"']*["']/gi, "");
+    cleanAttrs = cleanAttrs.replace(/(?:max-w-full\s+overflow-hidden\s+my-6\s+mx-auto\s*)+/gi, "");
     cleanAttrs += ` style="max-width: 100% !important; overflow: hidden !important; margin-left: auto; margin-right: auto;"`;
     if (cleanAttrs.includes('class="') || cleanAttrs.includes("class='")) {
       cleanAttrs = cleanAttrs.replace(/class=["']([^"']*)["']/i, 'class="$1 max-w-full overflow-hidden my-6 mx-auto"');
