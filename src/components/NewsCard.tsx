@@ -12,7 +12,25 @@ interface NewsCardProps {
 }
 
 export const NewsCard: React.FC<NewsCardProps> = ({ item, onSelect, layout = "vertical" }) => {
-  const { candidates } = useMemo(() => extractPostImages(item), [item]);
+  const directCandidate = useMemo(() => {
+    return (
+      item.rawImageUrl ||
+      item.thumbnail ||
+      item.imageUrl ||
+      item.image ||
+      (Array.isArray(item.images) && item.images[0]) ||
+      ""
+    );
+  }, [item.rawImageUrl, item.thumbnail, item.imageUrl, item.image, item.images]);
+
+  // Se já possui imagem autêntica nos campos rápidos, usa imediatamente poupando 100% de CPU e regex
+  const { candidates } = useMemo(() => {
+    if (directCandidate) {
+      return { candidates: [directCandidate] };
+    }
+    return extractPostImages(item);
+  }, [directCandidate, item]);
+
   const [candidateIdx, setCandidateIdx] = useState(0);
 
   const cleanTitle = useMemo(() => {

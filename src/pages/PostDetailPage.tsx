@@ -46,11 +46,41 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
     return extractPostImages(post);
   }, [post]);
   const [candidateIdx, setCandidateIdx] = useState(0);
+  const [loadedContent, setLoadedContent] = useState<string>(post.content || "");
+  const [isLoadingContent, setIsLoadingContent] = useState<boolean>(!post.content || post.content.length < 50);
 
-  // Reset candidate index on post change
+  // Reset candidate index and fetch full content if missing (lightweight feed payload)
   useEffect(() => {
     setCandidateIdx(0);
-  }, [post.id, post.slug]);
+    if (post.content && post.content.length > 50) {
+      setLoadedContent(post.content);
+      setIsLoadingContent(false);
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoadingContent(true);
+    const identifier = encodeURIComponent(String(post.id || post.slug));
+    fetch(`/api/news/${identifier}`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (!isMounted) return;
+        const fullItem = json?.data || json;
+        if (fullItem?.content) {
+          setLoadedContent(fullItem.content);
+        } else if (fullItem?.description) {
+          setLoadedContent(fullItem.description);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (isMounted) setIsLoadingContent(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [post.id, post.slug, post.content]);
 
   const currentFeaturedImage = candidates[candidateIdx] || candidates[0];
 
@@ -62,10 +92,11 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
 
   // Clean and optimize post content: deduplicates featured image and cleans editorial boilerplate
   // STRICT: Automatically removes the featured hero image if it appears inside the body HTML
+  const rawBodyContent = loadedContent || post.content || post.description || "";
   const sanitizedContent = useMemo(() => {
-    if (!post.content) return "";
-    return processPostContent(post.content, currentFeaturedImage, post);
-  }, [post.content, currentFeaturedImage, post]);
+    if (!rawBodyContent) return "";
+    return processPostContent(rawBodyContent, currentFeaturedImage, post);
+  }, [rawBodyContent, currentFeaturedImage, post]);
 
   // Additional non-repeated distinct images from the article
   // STRICT RULE: Only keeps images that are NOT the featured image AND NOT already inside the body content!
@@ -281,7 +312,15 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
 
       {/* Post Content Body */}
       <div className="bg-slate-900/90 border border-blue-900/30 rounded-2xl p-6 sm:p-8 space-y-6 text-slate-200 leading-relaxed font-sans text-base max-w-full overflow-hidden">
-        {sanitizedContent ? (
+        {isLoadingContent && !sanitizedContent ? (
+          <div className="space-y-4 py-2 animate-pulse">
+            <div className="h-4 bg-slate-800 rounded w-full"></div>
+            <div className="h-4 bg-slate-800 rounded w-11/12"></div>
+            <div className="h-4 bg-slate-800 rounded w-4/5"></div>
+            <div className="h-4 bg-slate-800 rounded w-full"></div>
+            <div className="h-4 bg-slate-800 rounded w-3/4"></div>
+          </div>
+        ) : sanitizedContent ? (
           <div
             className="prose prose-invert prose-blue max-w-full overflow-hidden break-words text-justify space-y-4 [&>p]:text-justify [&>p]:leading-relaxed [&>p]:text-slate-200 [&>p]:text-base [&>h2]:text-xl [&>h2]:font-bold [&>h2]:text-white [&>h3]:text-lg [&>h3]:font-semibold [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>a]:text-blue-400 [&>a]:underline [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-xl [&_img]:my-6 [&_img]:mx-auto [&_img]:object-cover [&_figure]:max-w-full [&_figure]:overflow-hidden [&_figure]:my-6"
             dangerouslySetInnerHTML={{ __html: sanitizedContent }}

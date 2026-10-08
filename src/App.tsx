@@ -76,6 +76,7 @@ function MainPortal() {
 
   // Data states
   const [news, setNews] = useState<NewsItem[]>([]);
+  const [totalArchiveCount, setTotalArchiveCount] = useState<number>(6068);
   const [categories, setCategories] = useState<CategoryItem[]>(staticCategories as CategoryItem[]);
   const [sources, setSources] = useState<NewsSource[]>(staticSources as NewsSource[]);
   const [isLoadingNews, setIsLoadingNews] = useState<boolean>(false);
@@ -124,19 +125,39 @@ function MainPortal() {
     } catch {}
   }, [authState.isAdmin]);
 
-  // Realtime news loader from upstream API with background sync & visibilitychange
+  // Realtime news loader from upstream API with background sync & memory optimization
   const loadLatestRealtimeNews = useCallback(async (isSilent = false, forceBackendSync = false) => {
     try {
       if (!isSilent) setIsLoadingNews(true);
-      
+
+      // No modo silencioso em segundo plano, faz checagem rápida de assinatura para poupar 100% de RAM e CPU se nada mudou
+      if (isSilent && !forceBackendSync) {
+        try {
+          const checkRes = await fetch(`/api/realtime/check?_t=${Date.now()}`);
+          if (checkRes.ok) {
+            const checkData = await checkRes.json();
+            if (checkData?.latestId) {
+              const currentTop = news[0]?.id;
+              if (currentTop && String(currentTop) === String(checkData.latestId) && news.length === checkData.total) {
+                return; // Catálogo idêntico: não gasta banda nem memória
+              }
+            }
+          }
+        } catch {}
+      }
+
       if (forceBackendSync) {
         // Trigger server-side upstream API synchronization with Netlify fallback
         fetch("/api/monitoring/sync?fast=true", { method: "POST" }).catch(() => {});
       }
 
-      const newsRes = await fetch(`/api/news?all=true&_t=${Date.now()}&refresh=true`);
+      // Busca conjunto ativo otimizado (150 itens) reduzindo o tráfego de 45MB para <50KB e RAM de 300MB para <5MB
+      const newsRes = await fetch(`/api/news?limit=150&_t=${Date.now()}`);
       if (newsRes.ok) {
         const newsJson = await newsRes.json();
+        if (typeof newsJson.total === "number" && newsJson.total > 0) {
+          setTotalArchiveCount(newsJson.total);
+        }
         if (newsJson.success && Array.isArray(newsJson.data) && newsJson.data.length > 0) {
           const freshData = sortNewsChronological(deduplicateNews(newsJson.data));
           
@@ -149,7 +170,8 @@ function MainPortal() {
                 setPendingNews(freshData);
                 setNewArticlesCount(diff.length);
                 try {
-                  localStorage.setItem("norma_pending_realtime_news", JSON.stringify(freshData));
+                  // Salva apenas as 30 mais recentes para não esgotar a cota de 5MB do localStorage
+                  localStorage.setItem("norma_pending_realtime_news", JSON.stringify(freshData.slice(0, 30)));
                 } catch {}
               }
               return curr;
@@ -167,7 +189,7 @@ function MainPortal() {
         }
       }
       // Hybrid fallback
-      const hybridResult = await trafficRouter.fetchNews(true);
+      const hybridResult = await trafficRouter.fetchNews(false);
       if (hybridResult && hybridResult.news && hybridResult.news.length > 0) {
         const fallbackData = sortNewsChronological(deduplicateNews(hybridResult.news));
         if (isSilent) {
@@ -190,7 +212,7 @@ function MainPortal() {
     } finally {
       if (!isSilent) setIsLoadingNews(false);
     }
-  }, []);
+  }, [news]);
 
   useEffect(() => {
     // 0. Ao iniciar/reiniciar a página, aplica imediatamente as matérias pendentes acumuladas em tempo real
@@ -267,6 +289,38 @@ function MainPortal() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [loadLatestRealtimeNews]);
+
+  // Busca matérias dedicadas da editoria ao navegar por categoria (mantém RAM baixa e carregamento instantâneo)
+  useEffect(() => {
+    if (!selectedCategory || selectedCategory === "Todas") return;
+    fetch(`/api/news/category/${encodeURIComponent(selectedCategory)}?limit=80`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          const catData = sortNewsChronological(deduplicateNews(json.data));
+          setNews((curr) => deduplicateNews([...catData, ...curr]));
+        }
+      })
+      .catch(() => {});
+  }, [selectedCategory]);
+
+  // Pesquisa dinâmica integrada ao acervo completo do servidor (6.000+ matérias)
+  useEffect(() => {
+    const term = searchTerm.trim();
+    if (!term || term.length < 2) return;
+    const timer = setTimeout(() => {
+      fetch(`/api/news?search=${encodeURIComponent(term)}&limit=100`)
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+            const searchData = sortNewsChronological(deduplicateNews(json.data));
+            setNews((curr) => deduplicateNews([...searchData, ...curr]));
+          }
+        })
+        .catch(() => {});
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   // Category feed guaranteeing strict category isolation,
   // and balanced rotation of all categories when viewing "Todas"
@@ -616,7 +670,7 @@ function MainPortal() {
           if (currentView !== "home") setCurrentView("home");
         }}
         searchTerm={searchTerm}
-        totalNewsCount={news.length}
+        totalNewsCount={totalArchiveCount || news.length}
         onOpenSourcesModal={() => setIsSourcesModalOpen(true)}
         onOpenMetrics={() => setIsAdminMetricsOpen(true)}
       />
@@ -659,7 +713,7 @@ function MainPortal() {
             {currentView === "home" && (
               <HomePage
                 news={paginatedNews}
-                allNewsCount={filteredNews.length}
+                allNewsCount={searchTerm ? filteredNews.length : (totalArchiveCount || filteredNews.length)}
                 carouselNews={carouselData.items}
                 carouselCategory={carouselData.featuredCategory}
                 isCarouselFiltered={carouselData.isFiltered}

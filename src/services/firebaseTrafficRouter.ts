@@ -739,9 +739,9 @@ class FirebaseTrafficRouter {
    * Exclusively queries RTDB (Primary, Mirror, or Tertiary) without static JSON!
    */
   public async fetchNews(forceFresh = false): Promise<{ news: NewsItem[]; sourceUsed: TrafficSource }> {
-    // 1. Sempre prioriza a API do servidor (/api/news?all=true) com o catálogo completo de todas as fontes
+    // 1. Sempre prioriza a API do servidor com limite ágil para máxima velocidade e baixo consumo de RAM
     try {
-      const url = forceFresh ? `/api/news?all=true&_t=${Date.now()}` : "/api/news?all=true";
+      const url = forceFresh ? `/api/news?limit=150&_t=${Date.now()}` : "/api/news?limit=150";
       const serverRes = await fetch(url);
       if (serverRes.ok) {
         const json = await serverRes.json();
