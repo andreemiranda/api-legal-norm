@@ -699,26 +699,48 @@ async function fetchSourceNewsWithFallback(sourceId: number | string, limit = 10
   const primaryUrl = `${NEWS_API_BASE_URL}/api/news/${sourceId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
   const fallbackUrl = `${NEWS_API_FALLBACK_BASE_URL}/api/news/${sourceId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
 
-  // 1. Try Primary
+  const fetchHeaders = {
+    "User-Agent": "NormaJuridica/2.0 (compatible; Mozilla/5.0; NewsCrawler)",
+    "Accept": "application/json, text/plain, */*",
+  };
+
+  // 1. Tenta API primária (Vercel)
   try {
-    const res = await fetch(primaryUrl, { signal: AbortSignal.timeout(6000) });
+    const res = await fetch(primaryUrl, {
+      headers: fetchHeaders,
+      signal: AbortSignal.timeout(6000),
+    });
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) return data;
     }
-  } catch (err: any) {
-    // Primary error -> proceed to fallback
+  } catch {
+    // Primária falhou -> prossegue suavemente para fallback
   }
 
-  // 2. Try Fallback API (https://api-news-media.netlify.app)
-  try {
-    const res = await fetch(fallbackUrl, { signal: AbortSignal.timeout(8000) });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) return data;
+  // 2. Tenta API secundária (Netlify) com tolerância e retry
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(fallbackUrl, {
+        headers: fetchHeaders,
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) return data;
+      }
+    } catch {
+      if (attempt === 1) {
+        await new Promise((r) => setTimeout(r, 400));
+      }
     }
-  } catch (err: any) {
-    console.warn(`[Fallback API] Aviso ao buscar fonte ${sourceId} no fallback:`, err?.message || err);
+  }
+
+  // 3. Fallback Resiliente em Memória: Se os endpoints remotos falharem temporariamente,
+  // retorna as notícias já preservadas no banco de dados JSON para essa fonte
+  const localCached = allNewsData.filter((n) => String(n.sourceId) === String(sourceId));
+  if (localCached.length > 0) {
+    return localCached.slice(0, limit);
   }
 
   return [];
@@ -728,21 +750,45 @@ async function fetchMediaWithFallback(chId: number | string, limit = 100): Promi
   const primaryUrl = `${NEWS_API_BASE_URL}/api/images/${chId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
   const fallbackUrl = `${NEWS_API_FALLBACK_BASE_URL}/api/images/${chId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
 
+  const fetchHeaders = {
+    "User-Agent": "NormaJuridica/2.0 (compatible; Mozilla/5.0; NewsCrawler)",
+    "Accept": "application/json, text/plain, */*",
+  };
+
   try {
-    const res = await fetch(primaryUrl, { signal: AbortSignal.timeout(6000) });
+    const res = await fetch(primaryUrl, {
+      headers: fetchHeaders,
+      signal: AbortSignal.timeout(6000),
+    });
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) return data;
     }
   } catch {}
 
-  try {
-    const res = await fetch(fallbackUrl, { signal: AbortSignal.timeout(8000) });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data)) return data;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = await fetch(fallbackUrl, {
+        headers: fetchHeaders,
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) return data;
+      }
+    } catch {
+      if (attempt === 1) {
+        await new Promise((r) => setTimeout(r, 400));
+      }
     }
-  } catch {}
+  }
+
+  const localMedia = mediaPoolData.filter(
+    (m) => String(m.id) === String(chId) || String(m.sourceId) === String(chId)
+  );
+  if (localMedia.length > 0) {
+    return localMedia.slice(0, limit);
+  }
 
   return [];
 }
@@ -901,6 +947,9 @@ async function syncMediaCatalogFromUpstream() {
           fetchedMedia.push(...r.value);
         }
       }
+      if (i + chunkSize < mediaChannelsData.length) {
+        await new Promise((r) => setTimeout(r, 60));
+      }
     }
 
     if (fetchedMedia.length > 0) {
@@ -997,6 +1046,9 @@ async function syncNewsFromUpstreamApi() {
         if (r.status === "fulfilled" && Array.isArray(r.value)) {
           rawItems.push(...r.value);
         }
+      }
+      if (i + chunkSize < sourcesData.length) {
+        await new Promise((r) => setTimeout(r, 60));
       }
     }
 

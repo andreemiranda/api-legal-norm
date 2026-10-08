@@ -213,8 +213,8 @@ export async function fetchWithUpstreamFallback(
         return { ok: true, status: res.status, data, sourceUsed: "primary" };
       }
     }
-  } catch (err: any) {
-    console.warn(`[Upstream API] Falha na API primária (${primaryUrl}):`, err?.message || err);
+  } catch {
+    // Falha primária: prossegue automaticamente para fallback
   }
 
   // 2. Try Fallback API (https://api-news-media.netlify.app)
@@ -227,8 +227,8 @@ export async function fetchWithUpstreamFallback(
       const data = await res.json();
       return { ok: true, status: res.status, data, sourceUsed: "fallback" };
     }
-  } catch (err: any) {
-    console.error(`[Upstream API] Falha também na API de fallback (${fallbackUrl}):`, err?.message || err);
+  } catch {
+    // Falha secundária: caller usará cache local sem poluir o console
   }
 
   return { ok: false, status: 502, data: null, sourceUsed: "fallback" };
