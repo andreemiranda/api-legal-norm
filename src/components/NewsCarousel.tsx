@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { NewsItem } from "../types";
 import { extractThumbnail } from "../utils/imageFallback";
+import { OptimizedImage } from "./OptimizedImage";
 import { formatRelativeTime, stripHtml, calculateReadingTime } from "../utils/date";
 import { ChevronLeft, ChevronRight, Clock } from "lucide-react";
 
@@ -57,10 +58,10 @@ export const NewsCarousel: React.FC<NewsCarouselProps> = ({ news, onSelectNews, 
       {/* Visual Background with subtle zoom and vibrant natural brightness */}
       <div className="relative h-[360px] sm:h-[420px] md:h-[460px] w-full overflow-hidden bg-slate-900">
         {thumbnail ? (
-          <img
+          <OptimizedImage
             src={thumbnail}
             alt={currentItem.title}
-            referrerPolicy="no-referrer"
+            priority={true}
             className="w-full h-full object-cover object-center transform transition-transform duration-1000 ease-out group-hover:scale-105"
           />
         ) : (

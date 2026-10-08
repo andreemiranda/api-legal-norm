@@ -9,6 +9,7 @@ import {
   TrendingUp
 } from "lucide-react";
 import { extractThumbnail } from "../utils/imageFallback";
+import { OptimizedImage } from "./OptimizedImage";
 
 interface RightSidebarProps {
   categories: CategoryItem[];
@@ -126,11 +127,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 >
                   <div className="w-16 h-16 shrink-0 rounded bg-slate-950 overflow-hidden border border-slate-800">
                     {thumbnail ? (
-                      <img
+                      <OptimizedImage
                         src={thumbnail}
                         alt={item.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                        referrerPolicy="no-referrer"
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-slate-800/50">

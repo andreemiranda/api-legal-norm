@@ -81,7 +81,11 @@ export function normalizeImageUrl(url?: string | null): string {
 
   // Unwrap image proxy URLs
   try {
-    if (clean.includes("/next_imagem?url=") || clean.includes("/next_image?url=")) {
+    if (
+      clean.includes("/_next/image?url=") ||
+      clean.includes("/next_imagem?url=") ||
+      clean.includes("/next_image?url=")
+    ) {
       const parsed = new URL(clean, "http://localhost");
       clean = parsed.searchParams.get("url") || clean;
     }
@@ -145,8 +149,9 @@ export function areImagesEquivalent(urlA?: string | null, urlB?: string | null):
 }
 
 /**
- * Transforms an image URL to a clean directly-fetchable or proxied URL.
- * Strictly returns authentic URL or empty string. NO Unsplash or external fallbacks!
+ * Transforms an image URL to the optimized Next.js-compatible proxy pattern:
+ * /_next/image?url=[url_image]
+ * Applies to all images across the website (both internal assets and API images).
  */
 export function toOptimizedImage(url?: string | null, _category: string = "Notícia", _title?: string): string {
   if (!url || typeof url !== "string") {
@@ -154,21 +159,44 @@ export function toOptimizedImage(url?: string | null, _category: string = "Notí
   }
 
   const trimmed = url.trim();
-  if (!trimmed || !isValidApiImageUrl(trimmed)) {
+  if (!trimmed) {
     return "";
   }
 
-  // If already relative root or proxy
-  if (trimmed.startsWith("/next_imagem?url=") || trimmed.startsWith("/next_image?url=")) {
+  // If already formatted as /_next/image?url=
+  if (trimmed.startsWith("/_next/image?url=")) {
     return trimmed;
   }
 
-  // Return direct URL with protocol
-  if (trimmed.startsWith("//")) {
-    return "https:" + trimmed;
+  // Unwrap legacy proxy URLs
+  let cleanUrl = trimmed;
+  try {
+    if (
+      cleanUrl.includes("/_next/image?url=") ||
+      cleanUrl.includes("/next_imagem?url=") ||
+      cleanUrl.includes("/next_image?url=")
+    ) {
+      const parsed = new URL(cleanUrl, "http://localhost");
+      cleanUrl = parsed.searchParams.get("url") || cleanUrl;
+    }
+  } catch {}
+
+  // Handle local relative assets (like /logo.jpg)
+  if (cleanUrl.startsWith("/") && !cleanUrl.startsWith("//")) {
+    return `/_next/image?url=${encodeURIComponent(cleanUrl)}`;
   }
 
-  return trimmed;
+  // Handle scheme-relative URLs
+  if (cleanUrl.startsWith("//")) {
+    cleanUrl = "https:" + cleanUrl;
+  }
+
+  // Reject invalid non-image formats (SVGs, PDFs, stock photo APIs)
+  if (!isValidApiImageUrl(cleanUrl)) {
+    return "";
+  }
+
+  return `/_next/image?url=${encodeURIComponent(cleanUrl)}`;
 }
 
 export const getProxyImageUrl = toOptimizedImage;
@@ -341,9 +369,11 @@ export function extractPostImages(item: Partial<NewsItem>): {
   }
 
   // The 1st image is the primary featured image, 2nd is available in candidates[1]
-  const featuredImage = images[0];
-  const candidates = images;
-  const otherImages = images.slice(1);
+  // All returned image paths strictly conform to the /_next/image?url=[url_image] standard
+  const optimizedCandidates = images.map((img) => toOptimizedImage(img)).filter(Boolean);
+  const featuredImage = optimizedCandidates[0] || (images[0] ? toOptimizedImage(images[0]) : "");
+  const candidates = optimizedCandidates.length > 0 ? optimizedCandidates : images.map((img) => toOptimizedImage(img));
+  const otherImages = candidates.slice(1);
 
   return {
     featuredImage,
@@ -487,9 +517,26 @@ export function processPostContent(
     .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
     .replace(/\bRedação Norma Jurídica\b/gi, "Norma Jurídica");
 
-  // 3. Ensure all remaining distinct <img> tags have layout constraints, referrerpolicy, and loading
+  // 3. Ensure all remaining distinct <img> tags use the optimized pattern /_next/image?url=[url_image],
+  // and have layout constraints, referrerpolicy, and loading
   html = html.replace(/<img([^>]+)>/gi, (match, attrs) => {
     let cleanAttrs = attrs;
+
+    // Transform embedded image src to optimized pattern: /_next/image?url=[url_image]
+    cleanAttrs = cleanAttrs.replace(/\bsrc=["']([^"']+)["']/i, (_m, rawSrc) => {
+      const opt = toOptimizedImage(rawSrc);
+      return `src="${opt || rawSrc}"`;
+    });
+
+    // Also transform data-src or data-original if present
+    cleanAttrs = cleanAttrs.replace(/\b(?:data-src|data-original)=["']([^"']+)["']/gi, (_m, rawSrc) => {
+      const opt = toOptimizedImage(rawSrc);
+      return `data-src="${opt || rawSrc}"`;
+    });
+
+    // Strip raw srcset to ensure browser always requests the optimized image proxy
+    cleanAttrs = cleanAttrs.replace(/\s+srcset=["'][^"']*["']/gi, "");
+    cleanAttrs = cleanAttrs.replace(/\s+data-lazy-src=["'][^"']*["']/gi, "");
 
     // Strip inline width/height attributes with large numbers that break layouts
     cleanAttrs = cleanAttrs.replace(/\s+(?:width|height)=["']\d+["']/gi, "");

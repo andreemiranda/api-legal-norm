@@ -16,7 +16,7 @@ import { buildCategoryFeed } from "./src/utils/categoryFeedManager";
 import { extractTagsForNewsItem, computeTagCounts } from "./src/utils/tagEngine";
 import { verifyNewsImage, resolveAuthenticNewsImage } from "./src/utils/imageVerification";
 import { resolveNewsMedia, initMediaCatalog, getMediaCatalogCount } from "./src/utils/newsMediaResolver";
-import { deduplicateContentImages } from "./src/utils/imageOptimizer";
+import { deduplicateContentImages, toOptimizedImage, processPostContent } from "./src/utils/imageOptimizer";
 import { generateFullImageSitemapXml } from "./src/components/OptimizedImage";
 import { serverFirebaseManager } from "./src/services/serverFirebaseInstances";
 
@@ -35,7 +35,7 @@ app.set("trust proxy", 1); // Confia no proxy reverso do Cloud Run (Evita erro d
 
 // Configuração do PORT: no ambiente AI Studio / dev local, estritamente 3000.
 // Em produção, respeita process.env.PORT se fornecido pelo runtime de hospedagem.
-const PORT = process.env.NODE_ENV === "production" && process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Security Middleware
 app.use(helmet({
@@ -543,8 +543,12 @@ function processAndApplySobrescricao(rawNews: any[]) {
       const verifiedAlt = mediaResult.verifiedAlt || decodedTitle;
       const distinctImages = mediaResult.images;
 
-      // Clean content HTML: deduplicate repeated images AND remove the featured banner image from body text
-      const cleanContent = deduplicateContentImages(rawTextContent, [verifiedImgUrl]);
+      // Clean content HTML: deduplicate repeated images, remove featured banner,
+      // and rewrite all embedded <img> tags to the optimized pattern: /_next/image?url=[url_image]
+      const cleanContent = processPostContent(rawTextContent, verifiedImgUrl, item);
+
+      const optimizedThumb = toOptimizedImage(verifiedImgUrl);
+      const optimizedImages = distinctImages.map((img: string) => toOptimizedImage(img)).filter(Boolean);
 
       const tags = item.tags && item.tags.length > 0
         ? item.tags
@@ -555,10 +559,11 @@ function processAndApplySobrescricao(rawNews: any[]) {
         title: decodedTitle,
         description: cleanDesc,
         content: cleanContent,
-        thumbnail: verifiedImgUrl,
-        imageUrl: verifiedImgUrl,
-        image: verifiedImgUrl,
-        images: distinctImages,
+        thumbnail: optimizedThumb || verifiedImgUrl,
+        imageUrl: optimizedThumb || verifiedImgUrl,
+        image: optimizedThumb || verifiedImgUrl,
+        images: optimizedImages.length > 0 ? optimizedImages : distinctImages,
+        rawImageUrl: verifiedImgUrl,
         imageAlt: verifiedAlt,
         slug: cleanSlug({ ...item, title: decodedTitle }),
         tags,
@@ -2771,6 +2776,12 @@ async function startServer() {
             title = (item.title || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
             desc = (item.description || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
             img = item.thumbnail || item.imageUrl || img;
+            try {
+              if (img.includes("/_next/image?url=")) {
+                const parsed = new URL(img, "http://localhost");
+                img = parsed.searchParams.get("url") || img;
+              }
+            } catch {}
             if (img.startsWith("/")) img = siteUrl + img;
             type = "article";
             author = item.author || "Norma Jurídica";

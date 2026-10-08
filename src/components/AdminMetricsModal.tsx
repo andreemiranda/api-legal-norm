@@ -13,6 +13,7 @@ import {
   getAdminEmailsList,
   isRunningInIframe,
 } from "../services/firebaseAuthService";
+import { OptimizedImage } from "./OptimizedImage";
 import {
   Shield,
   Database,
@@ -775,7 +776,7 @@ export const AdminMetricsModal: React.FC<AdminMetricsModalProps> = ({ isOpen, on
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-slate-900 border border-slate-800">
                   <div className="flex items-center gap-3">
                     {authState.photoURL ? (
-                      <img
+                      <OptimizedImage
                         src={authState.photoURL}
                         alt={authState.displayName || "Administrador"}
                         className="w-10 h-10 rounded-full object-cover border-2 border-blue-500 shadow-md"

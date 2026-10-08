@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { CategoryItem } from "../types";
 import { AdSenseBanner } from "./AdSenseBanner";
 import { AuthModal } from "./AuthModal";
+import { OptimizedImage } from "./OptimizedImage";
 import { useFirebaseAuth, firebaseAuthService } from "../services/firebaseAuthService";
 import {
   Scale,
@@ -212,7 +213,7 @@ export const Header: React.FC<HeaderProps> = ({
                     title="Conta Google"
                   >
                     {authState.photoURL ? (
-                      <img
+                      <OptimizedImage
                         src={authState.photoURL}
                         alt={authState.displayName || "Usuário"}
                         className="w-6 h-6 rounded-full object-cover border-1.5 border-blue-400 shrink-0"
@@ -233,7 +234,7 @@ export const Header: React.FC<HeaderProps> = ({
                     <div className="absolute right-0 top-9 z-50 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-blue-900/60 rounded-2xl shadow-2xl p-2.5 text-xs text-slate-800 dark:text-slate-200 animate-fade-in">
                       <div className="flex items-center gap-3 p-2.5 border-b border-slate-100 dark:border-slate-800 mb-1.5">
                         {authState.photoURL ? (
-                          <img
+                          <OptimizedImage
                             src={authState.photoURL}
                             alt={authState.displayName || "Usuário"}
                             className="w-10 h-10 rounded-full object-cover border border-blue-400 shrink-0"
@@ -309,9 +310,10 @@ export const Header: React.FC<HeaderProps> = ({
             className="cursor-pointer group flex items-center gap-3.5 text-center lg:text-left select-none"
           >
             <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-700 via-blue-900 to-slate-950 border border-blue-500/40 p-1 flex items-center justify-center shadow-lg shadow-blue-950/50 group-hover:border-blue-400 transition-all overflow-hidden">
-              <img
+              <OptimizedImage
                 src="/logo.jpg"
                 alt="Norma Jurídica Logo"
+                priority={true}
                 className="w-full h-full object-cover rounded-lg"
                 onError={(e) => {
                   // If /logo.jpg is not found, fallback gracefully to Scale icon

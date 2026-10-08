@@ -339,10 +339,9 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({
                   className="group cursor-pointer bg-slate-900 border border-slate-800 hover:border-blue-700/60 rounded-xl overflow-hidden transition-all shadow-sm"
                 >
                   <div className="w-full h-28 overflow-hidden bg-slate-950">
-                    <img
+                    <OptimizedImage
                       src={rThumb}
                       alt={r.title}
-                      referrerPolicy="no-referrer"
                       onError={(e) => {
                         const fallback = rImages.candidates[1] || rImages.candidates[rImages.candidates.length - 1];
                         if (fallback) {

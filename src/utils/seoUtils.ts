@@ -17,14 +17,23 @@ export function updateClientSEO(
     el.setAttribute("content", content);
   };
 
+  // Open Graph and Twitter Cards require direct absolute image URLs as an exception
+  let directImageUrl = imageUrl;
+  try {
+    if (directImageUrl && directImageUrl.includes("/_next/image?url=")) {
+      const parsed = new URL(directImageUrl, "http://localhost");
+      directImageUrl = parsed.searchParams.get("url") || directImageUrl;
+    }
+  } catch {}
+
   setMeta("description", "name", description);
   setMeta("og:title", "property", title);
   setMeta("og:description", "property", description);
   setMeta("og:url", "property", url);
-  setMeta("og:image", "property", imageUrl);
+  setMeta("og:image", "property", directImageUrl);
   setMeta("twitter:title", "name", title);
   setMeta("twitter:description", "name", description);
-  setMeta("twitter:image", "name", imageUrl);
+  setMeta("twitter:image", "name", directImageUrl);
 
   // Set canonical URL
   let canonicalEl = document.querySelector('link[rel="canonical"]');

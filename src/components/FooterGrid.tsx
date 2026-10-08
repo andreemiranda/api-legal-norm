@@ -1,6 +1,7 @@
 import React from "react";
 import { NewsItem } from "../types";
 import { extractThumbnail } from "../utils/imageFallback";
+import { OptimizedImage } from "./OptimizedImage";
 import { formatRelativeTime } from "../utils/date";
 import { Newspaper, Clock, ArrowRight, RefreshCw, Layers, CheckCircle2 } from "lucide-react";
 
@@ -101,11 +102,10 @@ export const FooterGrid: React.FC<FooterGridProps> = ({
                 {/* Thumbnail Image */}
                 <div className="w-full h-32 relative bg-slate-950 overflow-hidden">
                   {thumbnail ? (
-                    <img
+                    <OptimizedImage
                       src={thumbnail}
                       alt={item.title}
                       loading="lazy"
-                      referrerPolicy="no-referrer"
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                   ) : (
