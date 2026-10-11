@@ -76,6 +76,8 @@ function MainPortal() {
 
   // Data states
   const [news, setNews] = useState<NewsItem[]>([]);
+  const newsRef = useRef<NewsItem[]>([]);
+  newsRef.current = news;
   const [totalArchiveCount, setTotalArchiveCount] = useState<number>(6068);
   const [categories, setCategories] = useState<CategoryItem[]>(staticCategories as CategoryItem[]);
   const [sources, setSources] = useState<NewsSource[]>(staticSources as NewsSource[]);
@@ -128,7 +130,7 @@ function MainPortal() {
   // Realtime news loader from upstream API with background sync & memory optimization
   const loadLatestRealtimeNews = useCallback(async (isSilent = false, forceBackendSync = false) => {
     try {
-      if (!isSilent) setIsLoadingNews(true);
+      if (!isSilent && newsRef.current.length === 0) setIsLoadingNews(true);
 
       // No modo silencioso em segundo plano, faz checagem rápida de assinatura para poupar 100% de RAM e CPU se nada mudou
       if (isSilent && !forceBackendSync) {
@@ -137,8 +139,8 @@ function MainPortal() {
           if (checkRes.ok) {
             const checkData = await checkRes.json();
             if (checkData?.latestId) {
-              const currentTop = news[0]?.id;
-              if (currentTop && String(currentTop) === String(checkData.latestId) && news.length === checkData.total) {
+              const currentTop = newsRef.current[0]?.id;
+              if (currentTop && String(currentTop) === String(checkData.latestId) && newsRef.current.length === checkData.total) {
                 return; // Catálogo idêntico: não gasta banda nem memória
               }
             }
@@ -210,9 +212,9 @@ function MainPortal() {
     } catch (err) {
       console.warn("Realtime sync notice:", err);
     } finally {
-      if (!isSilent) setIsLoadingNews(false);
+      setIsLoadingNews(false);
     }
-  }, [news]);
+  }, []);
 
   useEffect(() => {
     // 0. Ao iniciar/reiniciar a página, aplica imediatamente as matérias pendentes acumuladas em tempo real

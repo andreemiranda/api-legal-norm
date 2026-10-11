@@ -55,6 +55,8 @@ let allIndexedCatalog: IndexedMediaItem[] = [];
 let mediaBySource = new Map<string, IndexedMediaItem[]>();
 let mediaByPostId = new Map<string, IndexedMediaItem[]>();
 let mediaBySlug = new Map<string, IndexedMediaItem[]>();
+let mediaByLink = new Map<string, IndexedMediaItem[]>();
+let mediaByTitle = new Map<string, IndexedMediaItem[]>();
 
 const STOPWORDS = new Set([
   "para", "com", "por", "sobre", "apos", "desta", "deste", "como", "mais",
@@ -125,6 +127,8 @@ function reindexCatalog() {
   mediaBySource.clear();
   mediaByPostId.clear();
   mediaBySlug.clear();
+  mediaByLink.clear();
+  mediaByTitle.clear();
 
   for (const m of inMemoryCatalog) {
     if (!m.imageUrl || !isValidApiImageUrl(m.imageUrl)) continue;
@@ -177,12 +181,30 @@ function reindexCatalog() {
       mediaBySource.get(srcKey)!.push(indexedItem);
     }
 
-    // Index by parent Post ID
-    const pid = m.postId || m.raw?.post || m.raw?.parent;
-    if (pid) {
-      const pKey = String(pid);
-      if (!mediaByPostId.has(pKey)) mediaByPostId.set(pKey, []);
-      mediaByPostId.get(pKey)!.push(indexedItem);
+    // Index by direct item ID, parent Post ID, raw post, raw parent
+    const allIds = [m.id, m.postId, m.raw?.id, m.raw?.post, m.raw?.parent].filter(Boolean);
+    for (const idVal of allIds) {
+      const pKey = String(idVal).trim();
+      if (pKey) {
+        if (!mediaByPostId.has(pKey)) mediaByPostId.set(pKey, []);
+        mediaByPostId.get(pKey)!.push(indexedItem);
+      }
+    }
+
+    // Index by Link
+    if (m.link) {
+      const lNorm = m.link.trim().toLowerCase().split("?")[0].replace(/\/+$/, "");
+      if (lNorm) {
+        if (!mediaByLink.has(lNorm)) mediaByLink.set(lNorm, []);
+        mediaByLink.get(lNorm)!.push(indexedItem);
+      }
+    }
+    if (m.raw?.link) {
+      const rlNorm = String(m.raw.link).trim().toLowerCase().split("?")[0].replace(/\/+$/, "");
+      if (rlNorm && (!m.link || rlNorm !== m.link.trim().toLowerCase().split("?")[0].replace(/\/+$/, ""))) {
+        if (!mediaByLink.has(rlNorm)) mediaByLink.set(rlNorm, []);
+        mediaByLink.get(rlNorm)!.push(indexedItem);
+      }
     }
 
     // Index by slug
@@ -195,6 +217,21 @@ function reindexCatalog() {
       const lKey = linkSlug.toLowerCase();
       if (!mediaBySlug.has(lKey)) mediaBySlug.set(lKey, []);
       mediaBySlug.get(lKey)!.push(indexedItem);
+    }
+    if (m.raw?.slug) {
+      const rsKey = String(m.raw.slug).trim().toLowerCase();
+      if (rsKey && !mediaBySlug.has(rsKey)) {
+        mediaBySlug.set(rsKey, [indexedItem]);
+      }
+    }
+
+    // Index by Title
+    if (rawTitle && rawTitle.length > 5) {
+      const tNorm = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (tNorm) {
+        if (!mediaByTitle.has(tNorm)) mediaByTitle.set(tNorm, []);
+        mediaByTitle.get(tNorm)!.push(indexedItem);
+      }
     }
   }
 }
@@ -279,9 +316,9 @@ export function extractImagesFromHtml(html?: string | null): string[] {
 export function findWordPressMediaMatch(item: Partial<NewsItem>): { imageUrl: string; altText: string } | null {
   if (inMemoryCatalog.length === 0) return null;
 
-  // 1. Direct Post ID match (WordPress parent post) - exact relationship
+  // 1. Direct Post ID / Item ID match (exact relationship)
   if (item.id) {
-    const postMatches = mediaByPostId.get(String(item.id));
+    const postMatches = mediaByPostId.get(String(item.id).trim());
     if (postMatches && postMatches.length > 0) {
       const match = postMatches.find((x) => x.imageUrl && isValidApiImageUrl(x.imageUrl));
       if (match?.imageUrl) {
@@ -289,6 +326,55 @@ export function findWordPressMediaMatch(item: Partial<NewsItem>): { imageUrl: st
           imageUrl: match.imageUrl,
           altText: match.alt || match.title || String(item.title || ""),
         };
+      }
+    }
+  }
+
+  // 2. Direct Link match
+  if (item.link) {
+    const cleanLink = item.link.trim().toLowerCase().split("?")[0].replace(/\/+$/, "");
+    if (cleanLink) {
+      const linkMatches = mediaByLink.get(cleanLink);
+      if (linkMatches && linkMatches.length > 0) {
+        const match = linkMatches.find((x) => x.imageUrl && isValidApiImageUrl(x.imageUrl));
+        if (match?.imageUrl) {
+          return {
+            imageUrl: match.imageUrl,
+            altText: match.alt || match.title || String(item.title || ""),
+          };
+        }
+      }
+    }
+  }
+
+  // 3. Direct Slug match
+  const rawPostSlug = extractSlug(item.link || item.slug || "").toLowerCase().trim();
+  if (rawPostSlug && rawPostSlug.length >= 6) {
+    const slugMatches = mediaBySlug.get(rawPostSlug);
+    if (slugMatches && slugMatches.length > 0) {
+      const match = slugMatches.find((x) => x.imageUrl && isValidApiImageUrl(x.imageUrl));
+      if (match?.imageUrl) {
+        return {
+          imageUrl: match.imageUrl,
+          altText: match.alt || match.title || String(item.title || ""),
+        };
+      }
+    }
+  }
+
+  // 4. Exact Title match
+  if (item.title && item.title.trim().length > 10) {
+    const cleanT = item.title.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (cleanT) {
+      const titleMatches = mediaByTitle.get(cleanT);
+      if (titleMatches && titleMatches.length > 0) {
+        const match = titleMatches.find((x) => x.imageUrl && isValidApiImageUrl(x.imageUrl));
+        if (match?.imageUrl) {
+          return {
+            imageUrl: match.imageUrl,
+            altText: match.alt || match.title || String(item.title || ""),
+          };
+        }
       }
     }
   }
@@ -301,7 +387,6 @@ export function findWordPressMediaMatch(item: Partial<NewsItem>): { imageUrl: st
     return null;
   }
 
-  const rawPostSlug = extractSlug(item.link || item.slug || "").toLowerCase();
   if (!rawPostSlug || rawPostSlug.length < 8) {
     return null;
   }
@@ -393,6 +478,21 @@ export function resolveNewsMedia(item: Partial<NewsItem>): {
     ownCandidates.push(...extractImagesFromHtml(item.description));
   }
 
+  // 4. Raw API fields if present
+  const rawObj = (item as any)?.raw;
+  if (rawObj) {
+    if (rawObj.imageUrl) ownCandidates.push(rawObj.imageUrl);
+    if (rawObj.mediaUrl) ownCandidates.push(rawObj.mediaUrl);
+    if (rawObj.source_url) ownCandidates.push(rawObj.source_url);
+    if (rawObj.guid?.rendered) ownCandidates.push(rawObj.guid.rendered);
+    if (rawObj.media_details?.sizes?.large?.source_url) ownCandidates.push(rawObj.media_details.sizes.large.source_url);
+    if (rawObj.media_details?.sizes?.full?.source_url) ownCandidates.push(rawObj.media_details.sizes.full.source_url);
+    if (rawObj["media:content"]?.url) ownCandidates.push(rawObj["media:content"].url);
+    if (rawObj["media:thumbnail"]?.url) ownCandidates.push(rawObj["media:thumbnail"].url);
+    if (rawObj.content?.rendered) ownCandidates.push(...extractImagesFromHtml(rawObj.content.rendered));
+    if (rawObj.description?.rendered) ownCandidates.push(...extractImagesFromHtml(rawObj.description.rendered));
+  }
+
   // Deduplicate and verify article's own candidates
   const dedupedOwn = deduplicateImageList(ownCandidates);
   const validOwnImages = dedupedOwn.filter((img) => {
@@ -409,34 +509,42 @@ export function resolveNewsMedia(item: Partial<NewsItem>): {
     };
   }
 
-  // 4. ONLY if no authentic image was found in the article itself, search media catalog with strict matching
+  // 5. Search media catalog with accurate matching
   const wpMatch = findWordPressMediaMatch(item);
-  if (wpMatch?.imageUrl) {
-    const check = verifyImageSource(wpMatch.imageUrl, item);
-    if (check.valid) {
-      return {
-        primaryImage: wpMatch.imageUrl,
-        images: [wpMatch.imageUrl],
-        verifiedAlt: wpMatch.altText || officialTitle,
-      };
-    }
+  if (wpMatch?.imageUrl && isValidApiImageUrl(wpMatch.imageUrl)) {
+    return {
+      primaryImage: wpMatch.imageUrl,
+      images: [wpMatch.imageUrl],
+      verifiedAlt: wpMatch.altText || officialTitle,
+    };
   }
 
-  // 5. If STILL empty (no image in content and no match in catalog):
-  // Clean neutral editorial visual fallback based on editorial domain
+  // 6. If STILL empty (no image in content and no match in catalog):
+  // Clean neutral editorial visual fallback based on editorial domain and category
   const distinctImages: string[] = [];
   const linkHost = (item.link || item.sourceSite || "").toLowerCase();
+  const cat = (item.category || "").toLowerCase();
+
   if (linkHost.includes("globo.com") || linkHost.includes("glbimg.com")) {
     distinctImages.push("https://s2-g1.glbimg.com/FAbgtDgxjSP1NlU5MhFFAbirOeQ=/i.s3.glbimg.com/v1/AUTH_5902ecb793a540d99060c1569f5f0582/internal_photos/bs/2026/G/1/g1-padrao.jpg");
+  } else if (linkHost.includes("palmeiras.com.br")) {
+    distinctImages.push("https://www.palmeiras.com.br/wp-content/uploads/2009/10/15006812883_803c8bf251_o.jpg");
+  } else if (linkHost.includes("meusitejuridico")) {
+    distinctImages.push("https://meusitejuridico.editorajuspodivm.com.br/s.meusitejuridico/2022/05/b10739a1-jur-vermelho.png");
+  } else if (linkHost.includes("gazetaesportiva") || linkHost.includes("ludopedio") || cat.includes("esport")) {
+    distinctImages.push("https://static.gazetaesportiva.com/uploads/2026/10/55517920923_77048e1db2_k.webp");
+  } else if (linkHost.includes("conjur.com.br")) {
+    distinctImages.push("https://conjur.com.br/wp-content/uploads/2026/05/opiniao-2.jpg");
+  } else if (linkHost.includes("diariodegoias") || cat.includes("goiás") || cat.includes("goias")) {
+    distinctImages.push("https://cdn.diariodegoias.com.br/wp-content/uploads/2026/10/08213133/prefeitura-de-goiania-propoe-descontos-de-ate-80-para-regularizacao-de-dividas.webp");
+  } else if (linkHost.includes("gazetadocerrado") || linkHost.includes("atitudeto") || linkHost.includes("clebertoledo") || cat.includes("tocantins")) {
+    distinctImages.push("https://uploads.gazetadocerrado.com.br/2026/10/b49d92b9-e1f9-4dcb-96cf-68c17b8f9e61.jpg");
+  } else if (cat.includes("educa")) {
+    distinctImages.push("https://infoeducacao.com.br/wp-content/uploads/2026/09/118181-3-1.jpg");
+  } else if (cat.includes("finan") || cat.includes("econ")) {
+    distinctImages.push("https://admin.cnnbrasil.com.br/wp-content/uploads/sites/12/2026/09/bolsa-valores-b3.jpg");
   } else {
-    const cat = (item.category || "").toLowerCase();
-    if (cat.includes("educa")) {
-      distinctImages.push("https://infoeducacao.com.br/wp-content/uploads/2026/09/118181-3-1.jpg");
-    } else if (cat.includes("finan") || cat.includes("econ")) {
-      distinctImages.push("https://admin.cnnbrasil.com.br/wp-content/uploads/sites/12/2026/09/bolsa-valores-b3.jpg");
-    } else {
-      distinctImages.push("https://admin.cnnbrasil.com.br/wp-content/uploads/sites/12/2026/09/supremo-tribunal-federal-stf.jpg");
-    }
+    distinctImages.push("https://odireito.com/wp-content/uploads/2024/08/20240814-Flavio-Dino-STF-53556335473_944399a5d6_k.jpg");
   }
 
   const primaryImage = distinctImages[0] || "";

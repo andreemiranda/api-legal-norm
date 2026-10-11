@@ -251,7 +251,7 @@ const DATABASE_FILENAMES: Record<string, string> = {
 
 const dbFileMeta = new Map<string, DatabaseFileMeta>();
 let lastStatCheckMs = 0;
-const STAT_CHECK_INTERVAL_MS = 1000;
+const STAT_CHECK_INTERVAL_MS = 30000;
 
 function resolveDataFilePath(filename: string): string {
   const candidates = [
@@ -540,14 +540,8 @@ function processAndApplySobrescricao(rawNews: any[]) {
       let cleanDesc = cleanEditorialText(decodeHtml(item.description));
       let rawTextContent = cleanEditorialText(item.content);
 
-      // Limpeza especializada para fontes de feeds RSS/XML:
-      // Elimina marcas de verificação, emojis, figurinhas, links e chamadas de WhatsApp
-      if (isRssFeedSource(item)) {
-        cleanDesc = preLimparTextoRss(cleanDesc);
-        rawTextContent = preLimparTextoRss(rawTextContent);
-      }
-
       // Extract authentic images from content, fields and media catalog (guaranteeing at least 1 image, non-repeated)
+      // CRITICAL: Extract images BEFORE preLimparTextoRss so <img> tags in RSS content are fully captured!
       const mediaResult = resolveNewsMedia({
         ...item,
         title: decodedTitle,
@@ -557,6 +551,13 @@ function processAndApplySobrescricao(rawNews: any[]) {
       const verifiedImgUrl = mediaResult.primaryImage;
       const verifiedAlt = mediaResult.verifiedAlt || decodedTitle;
       const distinctImages = mediaResult.images;
+
+      // Limpeza especializada para fontes de feeds RSS/XML:
+      // Elimina marcas de verificação, emojis, figurinhas, links e chamadas de WhatsApp
+      if (isRssFeedSource(item)) {
+        cleanDesc = preLimparTextoRss(cleanDesc);
+        rawTextContent = preLimparTextoRss(rawTextContent);
+      }
 
       // Clean content HTML: deduplicate repeated images, remove featured banner,
       // and rewrite all embedded <img> tags to the optimized pattern: /_next/image?url=[url_image]
@@ -885,7 +886,7 @@ function startDatabaseWatchers() {
     const resolvedPath = resolveDataFilePath(filename);
     try {
       if (fs.existsSync(resolvedPath)) {
-        fs.watchFile(resolvedPath, { interval: 1000 }, (curr, prev) => {
+        fs.watchFile(resolvedPath, { interval: 30000 }, (curr, prev) => {
           if (curr.mtimeMs !== prev.mtimeMs || curr.size !== prev.size) {
             console.log(`[JSON Database Watcher] Detectada edição em ${filename}! Atualizando API instantaneamente...`);
             reloadDatabaseFile(key, true);
@@ -920,19 +921,23 @@ async function syncMediaCatalogFromUpstream() {
         slice.map(async (ch: any) => {
           const items = await fetchMediaWithFallback(ch.id, 100);
           return items.map((item: any) => {
-            let img = item.imageUrl || item.source_url || item.guid?.rendered || item.link;
-            if (item.media_details?.sizes?.large?.source_url) {
-              img = item.media_details.sizes.large.source_url;
-            } else if (item.media_details?.sizes?.full?.source_url) {
-              img = item.media_details.sizes.full.source_url;
-            }
+            let img = item.imageUrl || item.mediaUrl || item.source_url || item.guid?.rendered;
+            if (!img && item.media_details?.sizes?.large?.source_url) img = item.media_details.sizes.large.source_url;
+            if (!img && item.media_details?.sizes?.full?.source_url) img = item.media_details.sizes.full.source_url;
+            if (!img && item.raw?.media_details?.sizes?.large?.source_url) img = item.raw.media_details.sizes.large.source_url;
+            if (!img && item.raw?.media_details?.sizes?.full?.source_url) img = item.raw.media_details.sizes.full.source_url;
+            if (!img && item.raw?.imageUrl) img = item.raw.imageUrl;
+            if (!img && item.raw?.mediaUrl) img = item.raw.mediaUrl;
+            if (!img && item.raw?.source_url) img = item.raw.source_url;
+
+            const pid = item.post || item.parent || item.raw?.post || item.raw?.parent || item.id || null;
             return {
               id: item.id,
-              postId: item.post || item.parent || item.raw?.post || item.raw?.parent || null,
+              postId: pid,
               slug: (item.slug || item.raw?.slug || "").trim(),
               alt: (item.alt_text || item.alt || item.raw?.alt_text || item.raw?.alt || "").trim(),
-              title: (item.title?.rendered || item.title || "").trim(),
-              link: item.link || "",
+              title: (item.title?.rendered || item.title || item.raw?.title?.rendered || item.raw?.title || "").trim(),
+              link: item.link || item.raw?.link || "",
               imageUrl: img,
               sourceId: ch.id,
               category: ch.category,
@@ -959,8 +964,14 @@ async function syncMediaCatalogFromUpstream() {
         try { existing = JSON.parse(fs.readFileSync(mediaCatalogPath, "utf-8")); } catch {}
       }
       const map = new Map<string, any>();
-      existing.forEach((x) => { if (x.imageUrl) map.set(x.imageUrl, x); });
-      fetchedMedia.forEach((x) => { if (x.imageUrl) map.set(x.imageUrl, x); });
+      existing.forEach((x) => {
+        const k = x.imageUrl || `${x.sourceId}_${x.id}`;
+        if (k) map.set(k, x);
+      });
+      fetchedMedia.forEach((x) => {
+        const k = x.imageUrl || `${x.sourceId}_${x.id}`;
+        if (k) map.set(k, x);
+      });
       const merged = Array.from(map.values());
       initMediaCatalog(merged);
       saveJsonDatabaseFile("mediaCatalog.json", merged);
@@ -984,13 +995,46 @@ async function syncLatestRealtimeNews(force = false): Promise<number> {
     const selectedSources = sourcesData.slice(0, 18);
     const results = await Promise.allSettled(
       selectedSources.map(async (source: any) => {
-        const items = await fetchSourceNewsWithFallback(source.id, 25);
-        return items.map((item: any) => ({
-          ...item,
-          sourceId: source.id,
-          sourceSite: source.originalSite || source.site || "Norma Jurídica",
-          category: source.category,
-        }));
+        const [items, mediaItems] = await Promise.all([
+          fetchSourceNewsWithFallback(source.id, 25),
+          fetchMediaWithFallback(source.id, 25).catch(() => []),
+        ]);
+
+        const mediaMap = new Map<string, any>();
+        if (Array.isArray(mediaItems) && mediaItems.length > 0) {
+          for (const m of mediaItems) {
+            const img = m.imageUrl || m.mediaUrl || m.source_url || m.guid?.rendered || m.raw?.imageUrl || m.raw?.mediaUrl;
+            if (!img) continue;
+            if (m.id) mediaMap.set(String(m.id), img);
+            if (m.postId) mediaMap.set(String(m.postId), img);
+            if (m.link) mediaMap.set(String(m.link).split("?")[0].replace(/\/+$/, "").toLowerCase(), img);
+            if (m.slug) mediaMap.set(String(m.slug).toLowerCase().trim(), img);
+          }
+        }
+
+        return items.map((item: any) => {
+          let attachedImg = item.imageUrl || item.thumbnail || item.image || item.mediaUrl;
+          if (!attachedImg && mediaMap.size > 0) {
+            if (item.id && mediaMap.has(String(item.id))) attachedImg = mediaMap.get(String(item.id));
+            else if (item.link) {
+              const l = String(item.link).split("?")[0].replace(/\/+$/, "").toLowerCase();
+              if (mediaMap.has(l)) attachedImg = mediaMap.get(l);
+            }
+            if (!attachedImg && item.slug) {
+              const s = String(item.slug).toLowerCase().trim();
+              if (mediaMap.has(s)) attachedImg = mediaMap.get(s);
+            }
+          }
+          return {
+            ...item,
+            imageUrl: attachedImg || item.imageUrl,
+            thumbnail: attachedImg || item.thumbnail,
+            image: attachedImg || item.image,
+            sourceId: source.id,
+            sourceSite: source.originalSite || source.site || "Norma Jurídica",
+            category: source.category,
+          };
+        });
       })
     );
 
@@ -1207,8 +1251,19 @@ function putInImageCache(url: string, buffer: Buffer, contentType: string) {
   });
 }
 
-app.get(["/_next/image", "/next_imagem", "/next_image"], async (req, res) => {
-  const rawUrl = req.query.url as string;
+app.get(["/image", "/_next/image", "/next_imagem", "/next_image"], async (req, res) => {
+  let rawUrl = (req.query.url as string) || (req.query["url[]"] as string);
+  if (!rawUrl) {
+    const match = req.url.match(/[?&]url(?:\[[^\]]*\])?=([^&]+)/);
+    if (match) {
+      try {
+        rawUrl = decodeURIComponent(match[1]);
+      } catch {
+        rawUrl = match[1];
+      }
+    }
+  }
+
   if (!rawUrl) {
     return sendFallbackImage(res);
   }
@@ -1229,7 +1284,7 @@ app.get(["/_next/image", "/next_imagem", "/next_image"], async (req, res) => {
   }
 
   try {
-    let targetUrl = rawUrl;
+    let targetUrl = rawUrl.trim();
     if (targetUrl.startsWith("//")) {
       targetUrl = "https:" + targetUrl;
     }
@@ -1238,13 +1293,39 @@ app.get(["/_next/image", "/next_imagem", "/next_image"], async (req, res) => {
       return sendFallbackImage(res);
     }
 
-    // Redirecionamento 302 imediato com cabeçalhos de cache:
-    // Permite que o navegador baixe diretamente da CDN de borda (Globo, Akamai, Cloudflare) via HTTP/2,
-    // eliminando 100% do consumo de memória RAM do Node e o atraso de fila
-    res.setHeader("Cache-Control", "public, max-age=2592000, stale-while-revalidate=86400, immutable");
+    // Streaming upstream fetch with standard browser headers:
+    // Streams chunks directly (only ~16KB socket buffer) without keeping in Node RAM!
+    const controller = new AbortController();
+    const timeoutTimer = setTimeout(() => controller.abort(), 8000);
+
+    const upstream = await fetch(targetUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      },
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutTimer));
+
+    if (upstream.ok && upstream.body) {
+      const contentType = upstream.headers.get("content-type") || "image/jpeg";
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "public, max-age=604800, stale-while-revalidate=86400, immutable");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+
+      const { Readable } = await import("stream");
+      const stream = Readable.fromWeb(upstream.body as any);
+      stream.on("error", () => {
+        if (!res.headersSent) res.redirect(302, targetUrl);
+        else res.end();
+      });
+      return stream.pipe(res);
+    }
+
+    // Se upstream não retornou 200, tenta redirecionamento direto como contingência
+    res.setHeader("Cache-Control", "public, max-age=86400");
     return res.redirect(302, targetUrl);
   } catch {
-    return sendFallbackImage(res);
+    return sendFallbackImage(res, rawUrl);
   }
 });
 

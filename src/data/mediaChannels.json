@@ -376,5 +376,691 @@
         "href": "https://news-sources-api.vercel.app/api/images/432221191486213"
       }
     }
+  },
+  {
+    "id": 427785761975213,
+    "category": "Notícias Gerais",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/427785761975213",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/427785761975213",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/427785761975213"
+      }
+    }
+  },
+  {
+    "id": 892535683444992,
+    "category": "Santa Catarina",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/892535683444992",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/892535683444992",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/892535683444992"
+      }
+    }
+  },
+  {
+    "id": 974849684945474,
+    "category": "Tocantins",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/974849684945474",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/974849684945474",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/974849684945474"
+      }
+    }
+  },
+  {
+    "id": 324454919423913,
+    "category": "Sergipe",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/324454919423913",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/324454919423913",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/324454919423913"
+      }
+    }
+  },
+  {
+    "id": 691371344441814,
+    "category": "Vale do Paraíba e região",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/691371344441814",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/691371344441814",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/691371344441814"
+      }
+    }
+  },
+  {
+    "id": 897446178272719,
+    "category": "São Carlos e Araraquara",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/897446178272719",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/897446178272719",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/897446178272719"
+      }
+    }
+  },
+  {
+    "id": 933194249393993,
+    "category": "Santos e Região",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/933194249393993",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/933194249393993",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/933194249393993"
+      }
+    }
+  },
+  {
+    "id": 831839339459297,
+    "category": "Ribeirão Preto e Franca",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/831839339459297",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/831839339459297",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/831839339459297"
+      }
+    }
+  },
+  {
+    "id": 419124828553144,
+    "category": "Mogi das Cruzes e Suzano",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/419124828553144",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/419124828553144",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/419124828553144"
+      }
+    }
+  },
+  {
+    "id": 723191424424467,
+    "category": "Campinas e região",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/723191424424467",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/723191424424467",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/723191424424467"
+      }
+    }
+  },
+  {
+    "id": 342584813447811,
+    "category": "Bauru e Marília",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/342584813447811",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/342584813447811",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/342584813447811"
+      }
+    }
+  },
+  {
+    "id": 254882472956384,
+    "category": "Roraima",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/254882472956384",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/254882472956384",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/254882472956384"
+      }
+    }
+  },
+  {
+    "id": 245424281243145,
+    "category": "Rondônia",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/245424281243145",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/245424281243145",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/245424281243145"
+      }
+    }
+  },
+  {
+    "id": 766781992469928,
+    "category": "Rio Grande do Sul",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/766781992469928",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/766781992469928",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/766781992469928"
+      }
+    }
+  },
+  {
+    "id": 244133125413414,
+    "category": "Rio Grande do Norte",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/244133125413414",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/244133125413414",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/244133125413414"
+      }
+    }
+  },
+  {
+    "id": 161349844169333,
+    "category": "Sul e Costa Verde Fluminense",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/161349844169333",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/161349844169333",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/161349844169333"
+      }
+    }
+  },
+  {
+    "id": 831941689473231,
+    "category": "Norte Fluminense",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/831941689473231",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/831941689473231",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/831941689473231"
+      }
+    }
+  },
+  {
+    "id": 444363186445964,
+    "category": "Região dos Lagos Fluminense",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/444363186445964",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/444363186445964",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/444363186445964"
+      }
+    }
+  },
+  {
+    "id": 818829263524227,
+    "category": "Região Serrana Fluminense",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/818829263524227",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/818829263524227",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/818829263524227"
+      }
+    }
+  },
+  {
+    "id": 217484393242793,
+    "category": "Petrolina e Região",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/217484393242793",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/217484393242793",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/217484393242793"
+      }
+    }
+  },
+  {
+    "id": 784182842449454,
+    "category": "Caruaru e Região",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/784182842449454",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/784182842449454",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/784182842449454"
+      }
+    }
+  },
+  {
+    "id": 645274655999426,
+    "category": "Norte e Noroeste do Paraná",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/645274655999426",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/645274655999426",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/645274655999426"
+      }
+    }
+  },
+  {
+    "id": 451463938442293,
+    "category": "Oeste e Sudoeste do Paraná",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/451463938442293",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/451463938442293",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/451463938442293"
+      }
+    }
+  },
+  {
+    "id": 113941349457784,
+    "category": "Campos Gerais e Sul do Paraná",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/113941349457784",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/113941349457784",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/113941349457784"
+      }
+    }
+  },
+  {
+    "id": 499199511484742,
+    "category": "Paraná",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/499199511484742",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/499199511484742",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/499199511484742"
+      }
+    }
+  },
+  {
+    "id": 774995463939238,
+    "category": "Paraíba",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/774995463939238",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/774995463939238",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/774995463939238"
+      }
+    }
+  },
+  {
+    "id": 832514384744418,
+    "category": "Pará",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/832514384744418",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/832514384744418",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/832514384744418"
+      }
+    }
+  },
+  {
+    "id": 291958422149444,
+    "category": "Zona da Mata Mineira",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/291958422149444",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/291958422149444",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/291958422149444"
+      }
+    }
+  },
+  {
+    "id": 138925214465973,
+    "category": "Vales de Minas Gerais",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/138925214465973",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/138925214465973",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/138925214465973"
+      }
+    }
+  },
+  {
+    "id": 669176851683213,
+    "category": "Sul de Minas",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/669176851683213",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/669176851683213",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/669176851683213"
+      }
+    }
+  },
+  {
+    "id": 932144873293832,
+    "category": "Grande Minas",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/932144873293832",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/932144873293832",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/932144873293832"
+      }
+    }
+  },
+  {
+    "id": 338554224496117,
+    "category": "Centro-Oeste de Minas",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/338554224496117",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/338554224496117",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/338554224496117"
+      }
+    }
+  },
+  {
+    "id": 164134119431948,
+    "category": "Maranhão",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/164134119431948",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/164134119431948",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/164134119431948"
+      }
+    }
+  },
+  {
+    "id": 399912785456532,
+    "category": "Amazonas",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/399912785456532",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/399912785456532",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/399912785456532"
+      }
+    }
+  },
+  {
+    "id": 446149137873394,
+    "category": "Amapá",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/446149137873394",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/446149137873394",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/446149137873394"
+      }
+    }
+  },
+  {
+    "id": 597174398438273,
+    "category": "Alagoas",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/597174398438273",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/597174398438273",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/597174398438273"
+      }
+    }
+  },
+  {
+    "id": 142414733688861,
+    "category": "Acre",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/142414733688861",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/142414733688861",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/142414733688861"
+      }
+    }
+  },
+  {
+    "id": 494339475812222,
+    "category": "Turismo e Viagem",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/494339475812222",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/494339475812222",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/494339475812222"
+      }
+    }
+  },
+  {
+    "id": 158311376392135,
+    "category": "Tecnologia e Games",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/158311376392135",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/158311376392135",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/158311376392135"
+      }
+    }
+  },
+  {
+    "id": 429447432493472,
+    "category": "Pop & Arte",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/429447432493472",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/429447432493472",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/429447432493472"
+      }
+    }
+  },
+  {
+    "id": 477372321386414,
+    "category": "Mundo",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/477372321386414",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/477372321386414",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/477372321386414"
+      }
+    }
+  },
+  {
+    "id": 174666593891425,
+    "category": "Loterias",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/174666593891425",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/174666593891425",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/174666593891425"
+      }
+    }
+  },
+  {
+    "id": 863534413172943,
+    "category": "Educação",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/863534413172943",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/863534413172943",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/863534413172943"
+      }
+    }
+  },
+  {
+    "id": 411718493791472,
+    "category": "Economia",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/411718493791472",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/411718493791472",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/411718493791472"
+      }
+    }
+  },
+  {
+    "id": 123961798934467,
+    "category": "Autoesporte",
+    "site": "https://news-sources-api.vercel.app",
+    "type": "rss",
+    "url": "https://news-sources-api.vercel.app/api/news/123961798934467",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/123961798934467",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/123961798934467"
+      }
+    }
+  },
+  {
+    "id": 528374619283746,
+    "category": "Justiça",
+    "site": "https://news-sources-api.vercel.app/api/news/528374619283746",
+    "type": "wp-api",
+    "url": "https://news-sources-api.vercel.app/api/news/528374619283746",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/528374619283746",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/528374619283746"
+      }
+    }
+  },
+  {
+    "id": 194728365019283,
+    "category": "Justiça",
+    "site": "https://news-sources-api.vercel.app/api/news/194728365019283",
+    "type": "wp-api",
+    "url": "https://news-sources-api.vercel.app/api/news/194728365019283",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/194728365019283",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/194728365019283"
+      }
+    }
+  },
+  {
+    "id": 736482910573649,
+    "category": "Justiça",
+    "site": "https://news-sources-api.vercel.app/api/news/736482910573649",
+    "type": "wp-api",
+    "url": "https://news-sources-api.vercel.app/api/news/736482910573649",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/736482910573649",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/736482910573649"
+      }
+    }
+  },
+  {
+    "id": 813947265038471,
+    "category": "Justiça",
+    "site": "https://news-sources-api.vercel.app/api/news/813947265038471",
+    "type": "wp-api",
+    "url": "https://news-sources-api.vercel.app/api/news/813947265038471",
+    "active": true,
+    "mediaUrl": "https://news-sources-api.vercel.app/api/images/813947265038471",
+    "_links": {
+      "self": {
+        "href": "https://news-sources-api.vercel.app/api/images/813947265038471"
+      }
+    }
   }
 ]

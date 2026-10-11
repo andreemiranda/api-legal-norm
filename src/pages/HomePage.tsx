@@ -204,8 +204,8 @@ export const HomePage: React.FC<HomePageProps> = ({
           </div>
         )}
 
-        {/* Loading indicator */}
-        {isLoading ? (
+        {/* Loading indicator when initial empty */}
+        {news.length === 0 && isLoading ? (
           <div className="py-20 flex flex-col items-center justify-center gap-3 text-slate-400">
             <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
             <p className="text-xs">Sincronizando notícias da rede...</p>

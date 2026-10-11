@@ -17,6 +17,7 @@ export function getDirectImageUrl(rawUrl?: string | null): string {
   if (!cleanUrl) return "";
   try {
     if (
+      cleanUrl.includes("/image?url=") ||
       cleanUrl.includes("/_next/image?url=") ||
       cleanUrl.includes("/next_imagem?url=") ||
       cleanUrl.includes("/next_image?url=")
@@ -32,8 +33,8 @@ export function getDirectImageUrl(rawUrl?: string | null): string {
 }
 
 /**
- * Transforms any raw image URL into the optimized Next.js-compatible proxy pattern:
- * /_next/image?url=[url_image]
+ * Transforms any raw image URL into the optimized proxy pattern:
+ * /image?url=[url_image] (com total suporte a /_next/image)
  */
 export function getOptimizedImageUrl(rawUrl?: string | null, baseUrl: string = ""): string {
   if (!rawUrl || typeof rawUrl !== "string") return "";
@@ -44,6 +45,7 @@ export function getOptimizedImageUrl(rawUrl?: string | null, baseUrl: string = "
   let cleanUrl = trimmed;
   try {
     if (
+      cleanUrl.includes("/image?url=") ||
       cleanUrl.includes("/_next/image?url=") ||
       cleanUrl.includes("/next_imagem?url=") ||
       cleanUrl.includes("/next_image?url=")
@@ -58,14 +60,13 @@ export function getOptimizedImageUrl(rawUrl?: string | null, baseUrl: string = "
     cleanUrl = "https:" + cleanUrl;
   }
 
-  // If local relative asset
-  if (cleanUrl.startsWith("/") && !cleanUrl.startsWith("/_next/image")) {
-    const prefix = baseUrl ? baseUrl.replace(/\/+$/, "") : "";
-    return `${prefix}/_next/image?url=${encodeURIComponent(cleanUrl)}`;
+  // Local static asset
+  if (cleanUrl.startsWith("/") && !cleanUrl.startsWith("/image") && !cleanUrl.startsWith("/_next/image")) {
+    return cleanUrl;
   }
 
   const prefix = baseUrl ? baseUrl.replace(/\/+$/, "") : "";
-  return `${prefix}/_next/image?url=${encodeURIComponent(cleanUrl)}`;
+  return `${prefix}/image?url=${encodeURIComponent(cleanUrl)}`;
 }
 
 export const toNextOptimizedImageUrl = getOptimizedImageUrl;
@@ -214,7 +215,7 @@ export const OptimizedImage: React.FC<OptimizedImageProps> = ({
   ...props
 }) => {
   const [hasError, setHasError] = useState(false);
-  const [triedProxyFallback, setTriedProxyFallback] = useState(false);
+  const [triedDirectFallback, setTriedDirectFallback] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
   // 1. Extrai o URL direto autêntico da CDN (s2-g1.glbimg.com, etc.)
@@ -222,25 +223,27 @@ export const OptimizedImage: React.FC<OptimizedImageProps> = ({
     return getDirectImageUrl(src);
   }, [src]);
 
-  // 2. URL proxy de contingência caso o direto falhe
-  const proxySrc = useMemo(() => {
+  // 2. URL no padrão otimizado /image?url=[url_da_imagem]
+  const optimizedSrc = useMemo(() => {
     if (!src) return "";
     return getOptimizedImageUrl(src);
   }, [src]);
 
-  // 3. Ordem de prioridade para velocidade máxima:
-  // - Primeiro: CDN direta autêntica (carregamento instantâneo em <50ms via HTTP/2, 0ms de fila no Node)
-  // - Se a CDN direta falhar (onError): tenta o proxy local como contingência
-  // - Se o proxy falhar: tenta o fallbackSrc
+  // 3. Ordem de prioridade para velocidade e confiabilidade máxima:
+  // - Primeiro: /image?url=[url] otimizado (streamed pelo servidor sem limites de CORS ou bloqueios de hotlink)
+  // - Se a rota /image falhar: tenta a URL direta da CDN
+  // - Se ambos falharem: usa o fallbackSrc
   const activeSrc = useMemo(() => {
     if (hasError && fallbackSrc) return fallbackSrc;
-    if (triedProxyFallback) return proxySrc;
-    return directSrc || proxySrc || src;
-  }, [hasError, fallbackSrc, triedProxyFallback, directSrc, proxySrc, src]);
+    if (triedDirectFallback) {
+      return directSrc || fallbackSrc || "";
+    }
+    return optimizedSrc || directSrc || src;
+  }, [hasError, fallbackSrc, triedDirectFallback, optimizedSrc, directSrc, src]);
 
   const handleError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
-    if (!triedProxyFallback && proxySrc && proxySrc !== directSrc) {
-      setTriedProxyFallback(true); // Se a URL direta falhar, tenta o proxy
+    if (!triedDirectFallback && directSrc && directSrc !== optimizedSrc) {
+      setTriedDirectFallback(true);
       return;
     }
     setHasError(true);

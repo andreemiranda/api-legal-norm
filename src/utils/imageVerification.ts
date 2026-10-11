@@ -304,6 +304,8 @@ export function verifyNewsImage(
     !trimmed.startsWith("http://") &&
     !trimmed.startsWith("https://") &&
     !trimmed.startsWith("//") &&
+    !trimmed.startsWith("/image?url=") &&
+    !trimmed.startsWith("/_next/image?url=") &&
     !trimmed.startsWith("data:image/")
   ) {
     return { valid: false, reason: "invalid_protocol" };
@@ -311,7 +313,13 @@ export function verifyNewsImage(
 
   const lower = trimmed.toLowerCase();
   // STRICT RULE: Reject Unsplash and any third-party stock photo API fallback
-  if (lower.includes("unsplash.com") || lower.includes("stockphoto") || lower.includes("shutterstock") || lower.includes("gettyimages")) {
+  if (
+    lower.includes("unsplash.com") ||
+    lower.includes("stockphoto.com") ||
+    lower.includes("shutterstock.com") ||
+    lower.includes("gettyimages.com") ||
+    lower.includes("istockphoto.com")
+  ) {
     return { valid: false, reason: "external_api_banned" };
   }
 

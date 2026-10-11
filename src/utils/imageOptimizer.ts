@@ -163,8 +163,8 @@ export function toOptimizedImage(url?: string | null, _category: string = "Notí
     return "";
   }
 
-  // If already formatted as /_next/image?url=
-  if (trimmed.startsWith("/_next/image?url=")) {
+  // If already formatted as /image?url=
+  if (trimmed.startsWith("/image?url=")) {
     return trimmed;
   }
 
@@ -172,6 +172,7 @@ export function toOptimizedImage(url?: string | null, _category: string = "Notí
   let cleanUrl = trimmed;
   try {
     if (
+      cleanUrl.includes("/image?url=") ||
       cleanUrl.includes("/_next/image?url=") ||
       cleanUrl.includes("/next_imagem?url=") ||
       cleanUrl.includes("/next_image?url=")
@@ -183,7 +184,7 @@ export function toOptimizedImage(url?: string | null, _category: string = "Notí
 
   // Handle local relative assets (like /logo.jpg)
   if (cleanUrl.startsWith("/") && !cleanUrl.startsWith("//")) {
-    return `/_next/image?url=${encodeURIComponent(cleanUrl)}`;
+    return cleanUrl;
   }
 
   // Handle scheme-relative URLs
@@ -196,7 +197,7 @@ export function toOptimizedImage(url?: string | null, _category: string = "Notí
     return "";
   }
 
-  return `/_next/image?url=${encodeURIComponent(cleanUrl)}`;
+  return `/image?url=${encodeURIComponent(cleanUrl)}`;
 }
 
 export const getProxyImageUrl = toOptimizedImage;
