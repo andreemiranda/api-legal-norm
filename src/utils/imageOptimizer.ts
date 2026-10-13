@@ -149,8 +149,8 @@ export function areImagesEquivalent(urlA?: string | null, urlB?: string | null):
 }
 
 /**
- * Transforms an image URL to the optimized Next.js-compatible proxy pattern:
- * /_next/image?url=[url_image]
+ * Transforms an image URL to the optimized image proxy pattern:
+ * /image?url=[url_image]
  * Applies to all images across the website (both internal assets and API images).
  */
 export function toOptimizedImage(url?: string | null, _category: string = "Notícia", _title?: string): string {
@@ -184,7 +184,7 @@ export function toOptimizedImage(url?: string | null, _category: string = "Notí
 
   // Handle local relative assets (like /logo.jpg)
   if (cleanUrl.startsWith("/") && !cleanUrl.startsWith("//")) {
-    return cleanUrl;
+    return `/image?url=${encodeURIComponent(cleanUrl)}`;
   }
 
   // Handle scheme-relative URLs
@@ -370,7 +370,7 @@ export function extractPostImages(item: Partial<NewsItem>): {
   }
 
   // The 1st image is the primary featured image, 2nd is available in candidates[1]
-  // All returned image paths strictly conform to the /_next/image?url=[url_image] standard
+  // All returned image paths strictly conform to the /image?url=[url_image] standard
   const optimizedCandidates = images.map((img) => toOptimizedImage(img)).filter(Boolean);
   const featuredImage = optimizedCandidates[0] || (images[0] ? toOptimizedImage(images[0]) : "");
   const candidates = optimizedCandidates.length > 0 ? optimizedCandidates : images.map((img) => toOptimizedImage(img));
@@ -518,12 +518,12 @@ export function processPostContent(
     .replace(/\b(da\s+redação|da\s+redacao)\b/gi, "")
     .replace(/\bRedação Norma Jurídica\b/gi, "Norma Jurídica");
 
-  // 3. Ensure all remaining distinct <img> tags use the optimized pattern /_next/image?url=[url_image],
+  // 3. Ensure all remaining distinct <img> tags use the optimized pattern /image?url=[url_image],
   // and have layout constraints, referrerpolicy, and loading
   html = html.replace(/<img([^>]+)>/gi, (match, attrs) => {
     let cleanAttrs = attrs;
 
-    // Transform embedded image src to optimized pattern: /_next/image?url=[url_image]
+    // Transform embedded image src to optimized pattern: /image?url=[url_image]
     cleanAttrs = cleanAttrs.replace(/\bsrc=["']([^"']+)["']/i, (_m, rawSrc) => {
       const opt = toOptimizedImage(rawSrc);
       return `src="${opt || rawSrc}"`;

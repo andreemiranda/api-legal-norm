@@ -465,7 +465,7 @@ class FirebaseTrafficRouter {
       console.warn("[Realtime SSE] Setup notice:", e);
     }
 
-    // 3. Verificação periódica silenciosa em segundo plano a cada 8 segundos com cache-busting
+    // 3. Verificação periódica silenciosa em segundo plano a cada 25 segundos com cache-busting
     if (this.realtimePollTimer) clearInterval(this.realtimePollTimer);
     this.realtimePollTimer = setInterval(async () => {
       try {
@@ -481,7 +481,7 @@ class FirebaseTrafficRouter {
           }
         }
       } catch {}
-    }, 8000);
+    }, 25000);
   }
 
   private stopRealtimeSync() {

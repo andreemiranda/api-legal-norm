@@ -110,18 +110,14 @@ export function buildCategoryFeed(
   // Se for "Todas", retorna todas as notícias no feed rotativo balanceado por categorias
   if (isAll) {
     const rotatingNews = buildBalancedRotatingFeed(allAvailableNews, rotationSeed);
-    const taggedItems = rotatingNews.map((item) => ({
-      ...item,
-      tags: item.tags && item.tags.length > 0 ? item.tags : extractTagsForNewsItem(item),
-    }));
-
-    const tags = computeTagCounts(taggedItems);
+    // As notícias no acervo já possuem tags extraídas; amostra ágil para computar estatísticas instantaneamente
+    const tags = computeTagCounts(rotatingNews.slice(0, 300));
     return {
       category: "Todas",
-      total: taggedItems.length,
+      total: allAvailableNews.length,
       tag_count: tags.length,
       tags,
-      items: taggedItems,
+      items: rotatingNews,
     };
   }
 

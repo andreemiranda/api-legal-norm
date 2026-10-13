@@ -34,7 +34,7 @@ export function getDirectImageUrl(rawUrl?: string | null): string {
 
 /**
  * Transforms any raw image URL into the optimized proxy pattern:
- * /image?url=[url_image] (com total suporte a /_next/image)
+ * /image?url=[url_image]
  */
 export function getOptimizedImageUrl(rawUrl?: string | null, baseUrl: string = ""): string {
   if (!rawUrl || typeof rawUrl !== "string") return "";
@@ -60,9 +60,10 @@ export function getOptimizedImageUrl(rawUrl?: string | null, baseUrl: string = "
     cleanUrl = "https:" + cleanUrl;
   }
 
-  // Local static asset
-  if (cleanUrl.startsWith("/") && !cleanUrl.startsWith("/image") && !cleanUrl.startsWith("/_next/image")) {
-    return cleanUrl;
+  // If local relative asset
+  if (cleanUrl.startsWith("/") && !cleanUrl.startsWith("/image?url=") && !cleanUrl.startsWith("/_next/image")) {
+    const prefix = baseUrl ? baseUrl.replace(/\/+$/, "") : "";
+    return `${prefix}/image?url=${encodeURIComponent(cleanUrl)}`;
   }
 
   const prefix = baseUrl ? baseUrl.replace(/\/+$/, "") : "";
@@ -215,7 +216,7 @@ export const OptimizedImage: React.FC<OptimizedImageProps> = ({
   ...props
 }) => {
   const [hasError, setHasError] = useState(false);
-  const [triedDirectFallback, setTriedDirectFallback] = useState(false);
+  const [triedProxyFallback, setTriedProxyFallback] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
   // 1. Extrai o URL direto autêntico da CDN (s2-g1.glbimg.com, etc.)
@@ -223,27 +224,25 @@ export const OptimizedImage: React.FC<OptimizedImageProps> = ({
     return getDirectImageUrl(src);
   }, [src]);
 
-  // 2. URL no padrão otimizado /image?url=[url_da_imagem]
-  const optimizedSrc = useMemo(() => {
+  // 2. URL otimizado no formato /image?url=[url_imagem]
+  const proxySrc = useMemo(() => {
     if (!src) return "";
     return getOptimizedImageUrl(src);
   }, [src]);
 
-  // 3. Ordem de prioridade para velocidade e confiabilidade máxima:
-  // - Primeiro: /image?url=[url] otimizado (streamed pelo servidor sem limites de CORS ou bloqueios de hotlink)
-  // - Se a rota /image falhar: tenta a URL direta da CDN
-  // - Se ambos falharem: usa o fallbackSrc
+  // 3. Ordem de prioridade:
+  // - Padrão: URL otimizado /image?url=[url_imagem] (atende estritamente à especificação do usuário)
+  // - Se o proxy reportar erro de carregamento (onError): fallback automático para o URL direto CDN
+  // - Se ambos falharem: usa o fallbackSrc ou placeholder
   const activeSrc = useMemo(() => {
     if (hasError && fallbackSrc) return fallbackSrc;
-    if (triedDirectFallback) {
-      return directSrc || fallbackSrc || "";
-    }
-    return optimizedSrc || directSrc || src;
-  }, [hasError, fallbackSrc, triedDirectFallback, optimizedSrc, directSrc, src]);
+    if (triedProxyFallback) return directSrc || fallbackSrc || "";
+    return proxySrc || directSrc || src;
+  }, [hasError, fallbackSrc, triedProxyFallback, directSrc, proxySrc, src]);
 
   const handleError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
-    if (!triedDirectFallback && directSrc && directSrc !== optimizedSrc) {
-      setTriedDirectFallback(true);
+    if (!triedProxyFallback && directSrc && directSrc !== proxySrc) {
+      setTriedProxyFallback(true); // Fallback instantâneo para CDN direta
       return;
     }
     setHasError(true);

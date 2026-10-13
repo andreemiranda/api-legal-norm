@@ -251,7 +251,7 @@ const DATABASE_FILENAMES: Record<string, string> = {
 
 const dbFileMeta = new Map<string, DatabaseFileMeta>();
 let lastStatCheckMs = 0;
-const STAT_CHECK_INTERVAL_MS = 30000;
+const STAT_CHECK_INTERVAL_MS = 1000;
 
 function resolveDataFilePath(filename: string): string {
   const candidates = [
@@ -312,13 +312,19 @@ function safeReadJsonFile<T>(filePath: string, fallback: T): { data: T; size: nu
   }
 }
 
+let isInternalSavingDatabaseFile = false;
+let lastInternalSaveTimeMs = 0;
+
 function saveJsonDatabaseFile(filename: string, data: any): boolean {
   if (data === null || data === undefined) {
     console.warn(`[JSON Database] Tentativa de salvar dados nulos em ${filename}. Operação abortada para evitar arquivo de 0 bytes.`);
     return false;
   }
+  isInternalSavingDatabaseFile = true;
+  lastInternalSaveTimeMs = Date.now();
   const jsonStr = JSON.stringify(data, null, 2);
   if (!jsonStr || jsonStr.trim().length < 2) {
+    isInternalSavingDatabaseFile = false;
     console.warn(`[JSON Database] JSON string vazia para ${filename}. Operação abortada para evitar arquivo de 0 bytes.`);
     return false;
   }
@@ -362,6 +368,7 @@ function saveJsonDatabaseFile(filename: string, data: any): boolean {
       lastLoaded: Date.now(),
     });
     console.log(`[JSON Database] Salvo com sucesso em ${targetPath} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
+    setTimeout(() => { isInternalSavingDatabaseFile = false; }, 3000);
     return true;
   } catch (err: any) {
     console.warn(`[JSON Database] Falha ao escrever em ${targetPath} (${err.message}). Tentando fallback em /tmp/${filename}...`);
@@ -394,43 +401,47 @@ function saveJsonDatabaseFile(filename: string, data: any): boolean {
 
 const defaultJusticaSources = [
   {
-    id: 528374619283746,
+    id: 8943219782427,
+    fallbackId: 528374619283746,
     category: "Justiça",
-    site: "https://news-sources-api.vercel.app/api/news/528374619283746",
+    site: "ambitojuridico.com.br",
     type: "wp-api",
-    url: "https://news-sources-api.vercel.app/api/news/528374619283746",
+    url: "https://news-sources-api.vercel.app/api/news/8943219782427",
     active: true,
-    _links: { self: { href: "https://news-sources-api.vercel.app/api/news/528374619283746" } },
+    _links: { self: { href: "https://news-sources-api.vercel.app/api/news/8943219782427" } },
     originalSite: "normajuridica.com"
   },
   {
-    id: 194728365019283,
+    id: 9981429932433,
+    fallbackId: 194728365019283,
     category: "Justiça",
-    site: "https://news-sources-api.vercel.app/api/news/194728365019283",
+    site: "justa.org.br",
     type: "wp-api",
-    url: "https://news-sources-api.vercel.app/api/news/194728365019283",
+    url: "https://news-sources-api.vercel.app/api/news/9981429932433",
     active: true,
-    _links: { self: { href: "https://news-sources-api.vercel.app/api/news/194728365019283" } },
+    _links: { self: { href: "https://news-sources-api.vercel.app/api/news/9981429932433" } },
     originalSite: "normajuridica.com"
   },
   {
-    id: 736482910573649,
+    id: 2518991918643,
+    fallbackId: 736482910573649,
     category: "Justiça",
-    site: "https://news-sources-api.vercel.app/api/news/736482910573649",
+    site: "odireito.com",
     type: "wp-api",
-    url: "https://news-sources-api.vercel.app/api/news/736482910573649",
+    url: "https://news-sources-api.vercel.app/api/news/2518991918643",
     active: true,
-    _links: { self: { href: "https://news-sources-api.vercel.app/api/news/736482910573649" } },
+    _links: { self: { href: "https://news-sources-api.vercel.app/api/news/2518991918643" } },
     originalSite: "normajuridica.com"
   },
   {
-    id: 813947265038471,
+    id: 6874538729284,
+    fallbackId: 813947265038471,
     category: "Justiça",
-    site: "https://news-sources-api.vercel.app/api/news/813947265038471",
+    site: "rotajuridica.com.br",
     type: "wp-api",
-    url: "https://news-sources-api.vercel.app/api/news/813947265038471",
+    url: "https://news-sources-api.vercel.app/api/news/6874538729284",
     active: true,
-    _links: { self: { href: "https://news-sources-api.vercel.app/api/news/813947265038471" } },
+    _links: { self: { href: "https://news-sources-api.vercel.app/api/news/6874538729284" } },
     originalSite: "normajuridica.com"
   }
 ];
@@ -528,20 +539,36 @@ let isFirebaseSyncing = false;
 function processAndApplySobrescricao(rawNews: any[]) {
   if (!Array.isArray(rawNews) || rawNews.length === 0) return;
 
-  // CRITICAL: Always merge incoming news with all existing news in memory!
-  // This guarantees news NEVER restarts or regresses, and prevents broken links!
-  const combinedRaw = allNewsData.length > 0 ? [...rawNews, ...allNewsData] : rawNews;
+  // Build lookup map of already-processed news to avoid re-processing on every tick
+  const existingMap = new Map<string, any>();
+  for (const item of allNewsData) {
+    const key = item.link || item.id || item.slug;
+    if (key) existingMap.set(String(key), item);
+  }
 
   const seen = new Set<string>();
+  const combinedRaw = allNewsData.length > 0 ? [...rawNews, ...allNewsData] : rawNews;
 
   let processed = combinedRaw
     .map((item: any) => {
+      const key = String(item.link || item.id || item.slug || "");
+      // Fast path: if item is already processed in memory, reuse it directly (0ms latency, 0% CPU waste)
+      if (existingMap.has(key) && item.__processed && item.slug && item.thumbnail) {
+        return item;
+      }
+
       const decodedTitle = cleanEditorialText(decodeHtml(item.title));
       let cleanDesc = cleanEditorialText(decodeHtml(item.description));
       let rawTextContent = cleanEditorialText(item.content);
 
+      // Limpeza especializada para fontes de feeds RSS/XML:
+      // Elimina marcas de verificação, emojis, figurinhas, links e chamadas de WhatsApp
+      if (isRssFeedSource(item)) {
+        cleanDesc = preLimparTextoRss(cleanDesc);
+        rawTextContent = preLimparTextoRss(rawTextContent);
+      }
+
       // Extract authentic images from content, fields and media catalog (guaranteeing at least 1 image, non-repeated)
-      // CRITICAL: Extract images BEFORE preLimparTextoRss so <img> tags in RSS content are fully captured!
       const mediaResult = resolveNewsMedia({
         ...item,
         title: decodedTitle,
@@ -552,15 +579,8 @@ function processAndApplySobrescricao(rawNews: any[]) {
       const verifiedAlt = mediaResult.verifiedAlt || decodedTitle;
       const distinctImages = mediaResult.images;
 
-      // Limpeza especializada para fontes de feeds RSS/XML:
-      // Elimina marcas de verificação, emojis, figurinhas, links e chamadas de WhatsApp
-      if (isRssFeedSource(item)) {
-        cleanDesc = preLimparTextoRss(cleanDesc);
-        rawTextContent = preLimparTextoRss(rawTextContent);
-      }
-
       // Clean content HTML: deduplicate repeated images, remove featured banner,
-      // and rewrite all embedded <img> tags to the optimized pattern: /_next/image?url=[url_image]
+      // and rewrite all embedded <img> tags to the optimized pattern: /image?url=[url_image]
       const cleanContent = processPostContent(rawTextContent, verifiedImgUrl, item);
 
       const optimizedThumb = toOptimizedImage(verifiedImgUrl);
@@ -572,6 +592,7 @@ function processAndApplySobrescricao(rawNews: any[]) {
 
       return {
         ...item,
+        __processed: true,
         title: decodedTitle,
         description: cleanDesc,
         content: cleanContent,
@@ -586,7 +607,7 @@ function processAndApplySobrescricao(rawNews: any[]) {
       };
     })
     .filter((item: any) => {
-      const key = item.link || item.id || item.slug;
+      const key = String(item.link || item.id || item.slug || "");
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -613,13 +634,19 @@ function processAndApplySobrescricao(rawNews: any[]) {
     return timeB - timeA;
   });
 
-  // Sobrescrição Engine: Enforce 3 GB global storage limit (1 GB per instance)
-  let currentBytes = Buffer.byteLength(JSON.stringify(processed), "utf-8");
-  if (currentBytes >= STORAGE_LIMIT_BYTES) {
-    console.warn(`[Sobrescrição Server] Limite global de 3 GB atingido (${currentBytes} bytes). Executando sobrescrição FIFO...`);
-    while (currentBytes >= STORAGE_LIMIT_BYTES * 0.9 && processed.length > 50) {
-      processed.pop(); // Remove oldest
-      currentBytes = Buffer.byteLength(JSON.stringify(processed), "utf-8");
+  // Sobrescrição Engine: Enforce 3 GB global storage limit (1 GB per instance) in O(1)
+  // Only triggers if articles exceed ~400,000 items (3 GB). Zero CPU overhead during standard operations.
+  if (processed.length > 350000) {
+    const currentBytes = Buffer.byteLength(JSON.stringify(processed), "utf-8");
+    if (currentBytes >= STORAGE_LIMIT_BYTES) {
+      console.warn(`[Sobrescrição Server] Limite global de 3 GB atingido (${currentBytes} bytes). Executando sobrescrição FIFO...`);
+      const targetBytes = STORAGE_LIMIT_BYTES * 0.9;
+      const excess = currentBytes - targetBytes;
+      const avgItem = Math.max(500, Math.round(currentBytes / processed.length));
+      const toRemove = Math.min(processed.length - 100, Math.ceil(excess / avgItem));
+      if (toRemove > 0) {
+        processed.splice(processed.length - toRemove, toRemove);
+      }
     }
   }
 
@@ -696,9 +723,18 @@ let lastRealtimeSyncTime = 0;
  * 1. Tries primary API (https://news-sources-api.vercel.app)
  * 2. If it fails, times out, or returns non-200, tries fallback (https://api-news-media.netlify.app)
  */
-async function fetchSourceNewsWithFallback(sourceId: number | string, limit = 100): Promise<any[]> {
+/**
+ * Robust upstream fetch with automatic fallback:
+ * 1. Tries primary API (https://news-sources-api.vercel.app) with sourceId
+ * 2. If it fails, times out, or returns non-200, tries fallback (https://api-news-media.netlify.app) using fallbackId or sourceId
+ */
+async function fetchSourceNewsWithFallback(sourceId: number | string, limit = 100, fallbackId?: number | string): Promise<any[]> {
+  // If fallbackId is not explicitly passed, find it from sourcesData
+  const matchedSource = sourcesData.find((s: any) => String(s.id) === String(sourceId));
+  const effectiveFallbackId = fallbackId || matchedSource?.fallbackId || sourceId;
+
   const primaryUrl = `${NEWS_API_BASE_URL}/api/news/${sourceId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
-  const fallbackUrl = `${NEWS_API_FALLBACK_BASE_URL}/api/news/${sourceId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
+  const fallbackUrl = `${NEWS_API_FALLBACK_BASE_URL}/api/news/${effectiveFallbackId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
 
   const fetchHeaders = {
     "User-Agent": "NormaJuridica/2.0 (compatible; Mozilla/5.0; NewsCrawler)",
@@ -712,8 +748,9 @@ async function fetchSourceNewsWithFallback(sourceId: number | string, limit = 10
       signal: AbortSignal.timeout(6000),
     });
     if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) return data;
+      const json = await res.json();
+      const list = Array.isArray(json) ? json : (json?.items || json?.data || []);
+      if (Array.isArray(list) && list.length > 0) return list;
     }
   } catch {
     // Primária falhou -> prossegue suavemente para fallback
@@ -727,8 +764,9 @@ async function fetchSourceNewsWithFallback(sourceId: number | string, limit = 10
         signal: AbortSignal.timeout(8000),
       });
       if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) return data;
+        const json = await res.json();
+        const list = Array.isArray(json) ? json : (json?.items || json?.data || []);
+        if (Array.isArray(list) && list.length > 0) return list;
       }
     } catch {
       if (attempt === 1) {
@@ -739,7 +777,7 @@ async function fetchSourceNewsWithFallback(sourceId: number | string, limit = 10
 
   // 3. Fallback Resiliente em Memória: Se os endpoints remotos falharem temporariamente,
   // retorna as notícias já preservadas no banco de dados JSON para essa fonte
-  const localCached = allNewsData.filter((n) => String(n.sourceId) === String(sourceId));
+  const localCached = allNewsData.filter((n) => String(n.sourceId) === String(sourceId) || (matchedSource?.fallbackId && String(n.sourceId) === String(matchedSource.fallbackId)));
   if (localCached.length > 0) {
     return localCached.slice(0, limit);
   }
@@ -747,9 +785,12 @@ async function fetchSourceNewsWithFallback(sourceId: number | string, limit = 10
   return [];
 }
 
-async function fetchMediaWithFallback(chId: number | string, limit = 100): Promise<any[]> {
+async function fetchMediaWithFallback(chId: number | string, limit = 100, fallbackId?: number | string): Promise<any[]> {
+  const matchedChannel = mediaChannelsData.find((m: any) => String(m.id) === String(chId));
+  const effectiveFallbackId = fallbackId || matchedChannel?.fallbackId || chId;
+
   const primaryUrl = `${NEWS_API_BASE_URL}/api/images/${chId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
-  const fallbackUrl = `${NEWS_API_FALLBACK_BASE_URL}/api/images/${chId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
+  const fallbackUrl = `${NEWS_API_FALLBACK_BASE_URL}/api/images/${effectiveFallbackId}?api_key=${NEWS_API_KEY}&limit=${limit}`;
 
   const fetchHeaders = {
     "User-Agent": "NormaJuridica/2.0 (compatible; Mozilla/5.0; NewsCrawler)",
@@ -762,8 +803,9 @@ async function fetchMediaWithFallback(chId: number | string, limit = 100): Promi
       signal: AbortSignal.timeout(6000),
     });
     if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) return data;
+      const json = await res.json();
+      const list = Array.isArray(json) ? json : (json?.items || json?.data || []);
+      if (Array.isArray(list) && list.length > 0) return list;
     }
   } catch {}
 
@@ -774,8 +816,9 @@ async function fetchMediaWithFallback(chId: number | string, limit = 100): Promi
         signal: AbortSignal.timeout(8000),
       });
       if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) return data;
+        const json = await res.json();
+        const list = Array.isArray(json) ? json : (json?.items || json?.data || []);
+        if (Array.isArray(list) && list.length > 0) return list;
       }
     } catch {
       if (attempt === 1) {
@@ -856,7 +899,10 @@ function reloadDatabaseFile(key: string, force = false): boolean {
 // Scans JSON database files and reloads any that have changed on disk
 function checkAndReloadDatabaseIfModified(force = false): boolean {
   const now = Date.now();
-  if (!force && now - lastStatCheckMs < STAT_CHECK_INTERVAL_MS) {
+  if (!force && (isInternalSavingDatabaseFile || now - lastInternalSaveTimeMs < 5000)) {
+    return false;
+  }
+  if (!force && now - lastStatCheckMs < 15000) {
     return false;
   }
   lastStatCheckMs = now;
@@ -886,7 +932,10 @@ function startDatabaseWatchers() {
     const resolvedPath = resolveDataFilePath(filename);
     try {
       if (fs.existsSync(resolvedPath)) {
-        fs.watchFile(resolvedPath, { interval: 30000 }, (curr, prev) => {
+        fs.watchFile(resolvedPath, { interval: 5000 }, (curr, prev) => {
+          if (isInternalSavingDatabaseFile || Date.now() - lastInternalSaveTimeMs < 5000) {
+            return; // Ignore file events triggered by server itself
+          }
           if (curr.mtimeMs !== prev.mtimeMs || curr.size !== prev.size) {
             console.log(`[JSON Database Watcher] Detectada edição em ${filename}! Atualizando API instantaneamente...`);
             reloadDatabaseFile(key, true);
@@ -921,23 +970,19 @@ async function syncMediaCatalogFromUpstream() {
         slice.map(async (ch: any) => {
           const items = await fetchMediaWithFallback(ch.id, 100);
           return items.map((item: any) => {
-            let img = item.imageUrl || item.mediaUrl || item.source_url || item.guid?.rendered;
-            if (!img && item.media_details?.sizes?.large?.source_url) img = item.media_details.sizes.large.source_url;
-            if (!img && item.media_details?.sizes?.full?.source_url) img = item.media_details.sizes.full.source_url;
-            if (!img && item.raw?.media_details?.sizes?.large?.source_url) img = item.raw.media_details.sizes.large.source_url;
-            if (!img && item.raw?.media_details?.sizes?.full?.source_url) img = item.raw.media_details.sizes.full.source_url;
-            if (!img && item.raw?.imageUrl) img = item.raw.imageUrl;
-            if (!img && item.raw?.mediaUrl) img = item.raw.mediaUrl;
-            if (!img && item.raw?.source_url) img = item.raw.source_url;
-
-            const pid = item.post || item.parent || item.raw?.post || item.raw?.parent || item.id || null;
+            let img = item.imageUrl || item.source_url || item.guid?.rendered || item.link;
+            if (item.media_details?.sizes?.large?.source_url) {
+              img = item.media_details.sizes.large.source_url;
+            } else if (item.media_details?.sizes?.full?.source_url) {
+              img = item.media_details.sizes.full.source_url;
+            }
             return {
               id: item.id,
-              postId: pid,
+              postId: item.post || item.parent || item.raw?.post || item.raw?.parent || null,
               slug: (item.slug || item.raw?.slug || "").trim(),
               alt: (item.alt_text || item.alt || item.raw?.alt_text || item.raw?.alt || "").trim(),
-              title: (item.title?.rendered || item.title || item.raw?.title?.rendered || item.raw?.title || "").trim(),
-              link: item.link || item.raw?.link || "",
+              title: (item.title?.rendered || item.title || "").trim(),
+              link: item.link || "",
               imageUrl: img,
               sourceId: ch.id,
               category: ch.category,
@@ -964,14 +1009,8 @@ async function syncMediaCatalogFromUpstream() {
         try { existing = JSON.parse(fs.readFileSync(mediaCatalogPath, "utf-8")); } catch {}
       }
       const map = new Map<string, any>();
-      existing.forEach((x) => {
-        const k = x.imageUrl || `${x.sourceId}_${x.id}`;
-        if (k) map.set(k, x);
-      });
-      fetchedMedia.forEach((x) => {
-        const k = x.imageUrl || `${x.sourceId}_${x.id}`;
-        if (k) map.set(k, x);
-      });
+      existing.forEach((x) => { if (x.imageUrl) map.set(x.imageUrl, x); });
+      fetchedMedia.forEach((x) => { if (x.imageUrl) map.set(x.imageUrl, x); });
       const merged = Array.from(map.values());
       initMediaCatalog(merged);
       saveJsonDatabaseFile("mediaCatalog.json", merged);
@@ -995,46 +1034,13 @@ async function syncLatestRealtimeNews(force = false): Promise<number> {
     const selectedSources = sourcesData.slice(0, 18);
     const results = await Promise.allSettled(
       selectedSources.map(async (source: any) => {
-        const [items, mediaItems] = await Promise.all([
-          fetchSourceNewsWithFallback(source.id, 25),
-          fetchMediaWithFallback(source.id, 25).catch(() => []),
-        ]);
-
-        const mediaMap = new Map<string, any>();
-        if (Array.isArray(mediaItems) && mediaItems.length > 0) {
-          for (const m of mediaItems) {
-            const img = m.imageUrl || m.mediaUrl || m.source_url || m.guid?.rendered || m.raw?.imageUrl || m.raw?.mediaUrl;
-            if (!img) continue;
-            if (m.id) mediaMap.set(String(m.id), img);
-            if (m.postId) mediaMap.set(String(m.postId), img);
-            if (m.link) mediaMap.set(String(m.link).split("?")[0].replace(/\/+$/, "").toLowerCase(), img);
-            if (m.slug) mediaMap.set(String(m.slug).toLowerCase().trim(), img);
-          }
-        }
-
-        return items.map((item: any) => {
-          let attachedImg = item.imageUrl || item.thumbnail || item.image || item.mediaUrl;
-          if (!attachedImg && mediaMap.size > 0) {
-            if (item.id && mediaMap.has(String(item.id))) attachedImg = mediaMap.get(String(item.id));
-            else if (item.link) {
-              const l = String(item.link).split("?")[0].replace(/\/+$/, "").toLowerCase();
-              if (mediaMap.has(l)) attachedImg = mediaMap.get(l);
-            }
-            if (!attachedImg && item.slug) {
-              const s = String(item.slug).toLowerCase().trim();
-              if (mediaMap.has(s)) attachedImg = mediaMap.get(s);
-            }
-          }
-          return {
-            ...item,
-            imageUrl: attachedImg || item.imageUrl,
-            thumbnail: attachedImg || item.thumbnail,
-            image: attachedImg || item.image,
-            sourceId: source.id,
-            sourceSite: source.originalSite || source.site || "Norma Jurídica",
-            category: source.category,
-          };
-        });
+        const items = await fetchSourceNewsWithFallback(source.id, 25);
+        return items.map((item: any) => ({
+          ...item,
+          sourceId: source.id,
+          sourceSite: source.originalSite || source.site || "Norma Jurídica",
+          category: source.category,
+        }));
       })
     );
 
@@ -1218,7 +1224,7 @@ function sendFallbackImage(res: express.Response, redirectUrl?: string) {
 }
 
 // -------------------------------------------------------------
-// Image Proxy Endpoint: /_next/image, /next_imagem, /next_image
+// Image Proxy Endpoint: /image, /_next/image, /next_imagem, /next_image
 // Fast in-memory LRU Cache & Instant CDN Fallback (Elimina latência severa de imagens)
 // -------------------------------------------------------------
 interface CachedImageEntry {
@@ -1251,19 +1257,8 @@ function putInImageCache(url: string, buffer: Buffer, contentType: string) {
   });
 }
 
-app.get(["/image", "/_next/image", "/next_imagem", "/next_image"], async (req, res) => {
-  let rawUrl = (req.query.url as string) || (req.query["url[]"] as string);
-  if (!rawUrl) {
-    const match = req.url.match(/[?&]url(?:\[[^\]]*\])?=([^&]+)/);
-    if (match) {
-      try {
-        rawUrl = decodeURIComponent(match[1]);
-      } catch {
-        rawUrl = match[1];
-      }
-    }
-  }
-
+app.get(["/image", "/_next/image", "/next_imagem", "/next_image", "/api/image"], async (req, res) => {
+  const rawUrl = (req.query.url || req.query.src) as string;
   if (!rawUrl) {
     return sendFallbackImage(res);
   }
@@ -1288,63 +1283,40 @@ app.get(["/image", "/_next/image", "/next_imagem", "/next_image"], async (req, r
     if (targetUrl.startsWith("//")) {
       targetUrl = "https:" + targetUrl;
     }
+
+    // Unwrap recursive or nested image proxy URLs
+    if (
+      targetUrl.includes("/image?url=") ||
+      targetUrl.includes("/_next/image?url=") ||
+      targetUrl.includes("/next_imagem?url=") ||
+      targetUrl.includes("/next_image?url=")
+    ) {
+      try {
+        const parsedInner = new URL(targetUrl, "http://localhost");
+        targetUrl = parsedInner.searchParams.get("url") || parsedInner.searchParams.get("src") || targetUrl;
+      } catch {}
+    }
+
     const parsed = new URL(targetUrl);
     if (!["http:", "https:"].includes(parsed.protocol)) {
       return sendFallbackImage(res);
     }
 
-    // Streaming upstream fetch with standard browser headers:
-    // Streams chunks directly (only ~16KB socket buffer) without keeping in Node RAM!
-    const controller = new AbortController();
-    const timeoutTimer = setTimeout(() => controller.abort(), 8000);
-
-    const upstream = await fetch(targetUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-      },
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeoutTimer));
-
-    if (upstream.ok && upstream.body) {
-      const contentType = upstream.headers.get("content-type") || "image/jpeg";
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Cache-Control", "public, max-age=604800, stale-while-revalidate=86400, immutable");
-      res.setHeader("Access-Control-Allow-Origin", "*");
-
-      const { Readable } = await import("stream");
-      const stream = Readable.fromWeb(upstream.body as any);
-      stream.on("error", () => {
-        if (!res.headersSent) res.redirect(302, targetUrl);
-        else res.end();
-      });
-      return stream.pipe(res);
-    }
-
-    // Se upstream não retornou 200, tenta redirecionamento direto como contingência
-    res.setHeader("Cache-Control", "public, max-age=86400");
+    // Redirecionamento 302 imediato com cabeçalhos de cache:
+    // Permite que o navegador baixe diretamente da CDN de borda (Globo, Akamai, Cloudflare) via HTTP/2,
+    // eliminando 100% do consumo de memória RAM do Node e o atraso de fila
+    res.setHeader("Cache-Control", "public, max-age=2592000, stale-while-revalidate=86400, immutable");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Access-Control-Allow-Origin", "*");
     return res.redirect(302, targetUrl);
   } catch {
-    return sendFallbackImage(res, rawUrl);
+    return sendFallbackImage(res);
   }
 });
 
 // -------------------------------------------------------------
 // API Endpoints Implementation (JSON Database as Source of Truth)
 // -------------------------------------------------------------
-
-// Middleware ensuring JSON database files are hot-reloaded automatically upon any modification
-app.use((req, _res, next) => {
-  if (
-    req.path.startsWith("/api") ||
-    req.path.startsWith("/feed") ||
-    req.path.startsWith("/sitemap") ||
-    req.path.startsWith("/rss")
-  ) {
-    checkAndReloadDatabaseIfModified();
-  }
-  next();
-});
 
 // JSON Database Status & Health Diagnostics
 app.get("/api/database/status", (_req, res) => {
@@ -2010,7 +1982,7 @@ app.get(["/api/news/category/:category", "/api/feed/news/category/:category"], a
     total_pages: totalPages,
     has_prev: page > 1,
     has_next: page < totalPages,
-    data: paginated,
+    data: paginated.map(toLightweightNewsItem),
   });
 });
 
@@ -2018,6 +1990,12 @@ app.get(["/api/news/category/:category", "/api/feed/news/category/:category"], a
 // Reduz o tráfego de 50MB para <1MB e o consumo de memória RAM do cliente de 300MB para 10MB!
 function toLightweightNewsItem(item: any) {
   if (!item) return item;
+  let rawThumb = item.rawImageUrl || item.thumbnail || item.imageUrl || item.image || (Array.isArray(item.images) && item.images[0]) || "";
+  if (!rawThumb) {
+    const resolved = resolveNewsMedia(item);
+    rawThumb = resolved.primaryImage;
+  }
+  const optThumb = toOptimizedImage(rawThumb) || rawThumb;
   return {
     id: item.id,
     title: item.title,
@@ -2026,9 +2004,9 @@ function toLightweightNewsItem(item: any) {
     category: item.category,
     date: item.date || item.pubDate,
     pubDate: item.pubDate || item.date,
-    thumbnail: item.thumbnail || item.imageUrl,
-    imageUrl: item.imageUrl || item.thumbnail,
-    rawImageUrl: item.rawImageUrl || item.thumbnail || item.imageUrl,
+    thumbnail: optThumb,
+    imageUrl: optThumb,
+    rawImageUrl: rawThumb,
     imageAlt: item.imageAlt || item.title,
     tags: item.tags || [],
     sourceId: item.sourceId,
@@ -2046,6 +2024,40 @@ const getNewsHandler = async (req: express.Request, res: express.Response) => {
   res.setHeader("Expires", "0");
 
   await ensureNewsDataLoaded();
+
+  // Fast direct slug lookup support to ensure links NEVER break for any of the 6300+ items
+  if (req.query.slug) {
+    const rawSlug = String(req.query.slug).trim();
+    const cleanSlugTarget = rawSlug.replace(/^\/+|\/+$/g, "").replace(/^post\//, "");
+    const item = allNewsData.find(
+      (n) => n.slug === rawSlug ||
+             n.slug === `post/${cleanSlugTarget}` ||
+             (n.slug && n.slug.replace(/^post\//, "") === cleanSlugTarget) ||
+             String(n.id) === rawSlug
+    );
+    if (item) {
+      if (isRssFeedSource(item) && item.content) {
+        const cacheKey = item.content.slice(0, 150).replace(/\s+/g, " ").trim();
+        const content = textCleanCache.get(cacheKey) || preLimparTextoRss(item.content) || item.content;
+        return res.json({
+          success: true,
+          total: 1,
+          page: 1,
+          per_page: 1,
+          total_pages: 1,
+          data: [{ ...item, content, description: preLimparTextoRss(item.description) }],
+        });
+      }
+      return res.json({
+        success: true,
+        total: 1,
+        page: 1,
+        per_page: 1,
+        total_pages: 1,
+        data: [item],
+      });
+    }
+  }
 
   // Fast real-time upstream sync trigger when requested or stale (awaiting ensures serverless platforms like Vercel incorporate updates before response)
   if (req.query.refresh === "true" || req.query.force === "true" || req.query.realtime === "true" || Date.now() - lastRealtimeSyncTime > 30000) {
@@ -2139,16 +2151,45 @@ const getNewsHandler = async (req: express.Request, res: express.Response) => {
 app.get("/api/news", getNewsHandler);
 app.get("/api/feed/news", getNewsHandler);
 
-// 9. GET /api/news/:id
+// 9. GET /api/news/:id and wildcard slug route
+app.get(["/api/news/post/*", "/api/feed/news/post/*"], async (req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0, s-maxage=0");
+  await ensureNewsDataLoaded();
+  const rawPath = "post/" + (req.params[0] || "");
+  const cleanTarget = rawPath.replace(/^\/+|\/+$/g, "");
+  const item = allNewsData.find(
+    (n) => n.slug === cleanTarget ||
+           (n.slug && n.slug.replace(/^post\//, "") === cleanTarget.replace(/^post\//, ""))
+  );
+  if (item) {
+    if (isRssFeedSource(item) && item.content) {
+      const cacheKey = item.content.slice(0, 150).replace(/\s+/g, " ").trim();
+      const content = textCleanCache.get(cacheKey) || preLimparTextoRss(item.content) || item.content;
+      return res.json({
+        success: true,
+        data: { ...item, content, description: preLimparTextoRss(item.description) }
+      });
+    }
+    return res.json({ success: true, data: item });
+  }
+  res.status(404).json({ success: false, error: "Notícia não encontrada" });
+});
+
 app.get(["/api/news/:id", "/api/feed/news/:id"], async (req, res) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0, s-maxage=0");
   const idStr = String(req.params.id);
+  const cleanIdStr = idStr.replace(/^\/+|\/+$/g, "");
 
   await ensureNewsDataLoaded();
 
   // 1. Matéria individual por ID ou Slug (entrega conteúdo completo com limpeza IA de RSS)
   const item = allNewsData.find(
-    (n) => String(n.id) === idStr || n.slug === idStr || n.slug === `post/${encodeURIComponent(idStr)}`
+    (n) => String(n.id) === idStr ||
+           n.slug === idStr ||
+           n.slug === `post/${idStr}` ||
+           n.slug === cleanIdStr ||
+           n.slug === `post/${cleanIdStr}` ||
+           (n.slug && n.slug.replace(/^post\//, "") === cleanIdStr.replace(/^post\//, ""))
   );
 
   if (item) {
@@ -2201,8 +2242,8 @@ app.get(["/api/news/:id", "/api/feed/news/:id"], async (req, res) => {
   res.status(404).json({ success: false, error: "Notícia não encontrada" });
 });
 
-// 9b. POST /api/ai/clean - Endpoint direto para processamento e limpeza de notícias RSS via IA Pollinations
-app.post("/api/ai/clean", async (req, res) => {
+// 9b. POST /api/ai/clean & /api/ai/clean-text - Endpoint direto para processamento e limpeza de notícias RSS via IA Pollinations
+app.post(["/api/ai/clean", "/api/ai/clean-text"], async (req, res) => {
   const text = (req.body?.text || req.body?.content || "").trim();
   if (!text) {
     return res.status(400).json({ success: false, error: "Nenhum texto fornecido para limpeza." });

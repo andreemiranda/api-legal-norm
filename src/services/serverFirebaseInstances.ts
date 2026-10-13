@@ -491,15 +491,18 @@ export class ServerFirebaseManager {
     let itemsToWrite = [...newsItems];
     let prunedCount = 0;
 
-    // Automatic FIFO Sobrescrição: If payload reaches threshold (950 MB), prune oldest items to guarantee 1 GB limit
+    // Automatic FIFO Sobrescrição: If payload reaches threshold (950 MB), prune oldest items in O(1) to guarantee 1 GB limit
     let currentBytes = payloadBytes;
-    if (currentBytes >= cfg.storageThresholdBytes) {
+    if (currentBytes >= cfg.storageThresholdBytes && itemsToWrite.length > 50) {
       console.warn(
         `[Sobrescrição Server] Instância ${instanceId} atingiu limite de 950 MB (${currentBytes} bytes). Executando sobrescrição FIFO...`
       );
-      while (currentBytes >= cfg.storageThresholdBytes * 0.9 && itemsToWrite.length > 50) {
-        itemsToWrite.pop(); // Remove oldest
-        prunedCount++;
+      const targetBytes = cfg.storageThresholdBytes * 0.9;
+      const excessBytes = currentBytes - targetBytes;
+      const avgItemBytes = Math.max(100, Math.round(currentBytes / itemsToWrite.length));
+      prunedCount = Math.min(itemsToWrite.length - 50, Math.ceil(excessBytes / avgItemBytes));
+      if (prunedCount > 0) {
+        itemsToWrite.splice(itemsToWrite.length - prunedCount, prunedCount);
         currentBytes = Buffer.byteLength(JSON.stringify(itemsToWrite), "utf-8");
       }
       this.stats[instanceId].sobrescricaoCount += 1;

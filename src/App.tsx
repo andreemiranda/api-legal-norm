@@ -130,6 +130,7 @@ function MainPortal() {
   // Realtime news loader from upstream API with background sync & memory optimization
   const loadLatestRealtimeNews = useCallback(async (isSilent = false, forceBackendSync = false) => {
     try {
+      // Only show full loading spinner if there is completely zero news on screen
       if (!isSilent && newsRef.current.length === 0) setIsLoadingNews(true);
 
       // No modo silencioso em segundo plano, faz checagem rápida de assinatura para poupar 100% de RAM e CPU se nada mudou
@@ -486,6 +487,47 @@ function MainPortal() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  // Resolução resiliente de matérias por Slug ou ID: busca em memória e, se necessário, na API
+  // Garante que NENHUM link fique quebrado no acervo de 6.300+ matérias ao atualizar a página ou acessar link direto
+  const resolveAndSetPost = useCallback((slug: string) => {
+    if (!slug) return;
+    const clean = slug.replace(/^\/+|\/+$/g, "");
+    const cleanNoPrefix = clean.replace(/^post\//, "");
+    const found = newsRef.current.find(
+      (n) =>
+        n.slug === clean ||
+        n.slug === `post/${clean}` ||
+        n.slug === `post/${cleanNoPrefix}` ||
+        (n.slug && n.slug.replace(/^post\//, "") === cleanNoPrefix) ||
+        String(n.id) === clean.replace("post-", "")
+    );
+    if (found) {
+      setSelectedPost(found);
+      setCurrentView("post");
+      return;
+    }
+
+    // Busca na API pelo slug completo para garantir 100% de disponibilidade de links antigos
+    setIsLoadingNews(true);
+    fetch(`/api/news?slug=${encodeURIComponent(cleanNoPrefix)}`)
+      .then((r) => r.json())
+      .then((json) => {
+        const item = json.data?.[0] || (json.success && json.data && !Array.isArray(json.data) ? json.data : null);
+        if (item) {
+          setSelectedPost(item);
+          setCurrentView("post");
+          setNews((curr) => {
+            if (!curr.some((n) => n.id === item.id || n.slug === item.slug)) {
+              return [item, ...curr];
+            }
+            return curr;
+          });
+        }
+      })
+      .catch(() => {})
+      .finally(() => setIsLoadingNews(false));
+  }, []);
+
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       const state = e.state;
@@ -494,6 +536,9 @@ function MainPortal() {
         if (state.view === "post" && state.postId) {
           const post = news.find((n) => n.id === state.postId);
           if (post) setSelectedPost(post);
+        } else if (state.view === "post") {
+          const path = window.location.pathname;
+          resolveAndSetPost(path.substring(1));
         } else if (state.view === "home" && state.category) {
           setSelectedCategory(state.category);
           if (state.category === "Todas") {
@@ -524,52 +569,38 @@ function MainPortal() {
           if (["privacidade", "termos", "cookies", "lgpd", "consentimento", "contato"].includes(slug)) {
             setCurrentView(slug);
           } else {
-            const post = news.find(
-              (n) => n.slug === slug || n.slug === `post/${slug}` || String(n.id) === slug.replace("post-", "")
-            );
-            if (post) {
-              setSelectedPost(post);
-              setCurrentView("post");
-            }
+            resolveAndSetPost(slug);
           }
         }
       }
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [news, categories]);
+  }, [news, categories, resolveAndSetPost]);
 
   // Initial route parsing
   useEffect(() => {
-    if (news.length > 0 && !window.history.state?.view) {
-      const path = window.location.pathname;
-      if (path !== "/" && path !== "") {
-        if (path.startsWith("/categoria/")) {
-          const rawSlug = path.replace("/categoria/", "").trim();
-          const matched = categories.find((c) => matchCategories(c.category, rawSlug));
-          if (matched) {
-            setSelectedCategory(matched.category);
-          } else {
-            setSelectedCategory(decodeURIComponent(rawSlug));
-          }
-          setCurrentView("home");
+    const path = window.location.pathname;
+    if (path !== "/" && path !== "") {
+      if (path.startsWith("/categoria/")) {
+        const rawSlug = path.replace("/categoria/", "").trim();
+        const matched = categories.find((c) => matchCategories(c.category, rawSlug));
+        if (matched) {
+          setSelectedCategory(matched.category);
         } else {
-          const slug = path.substring(1);
-          if (["privacidade", "termos", "cookies", "lgpd", "consentimento", "contato"].includes(slug)) {
-            setCurrentView(slug);
-          } else {
-            const post = news.find(
-              (n) => n.slug === slug || n.slug === `post/${slug}` || String(n.id) === slug.replace("post-", "")
-            );
-            if (post) {
-              setSelectedPost(post);
-              setCurrentView("post");
-            }
-          }
+          setSelectedCategory(decodeURIComponent(rawSlug));
+        }
+        setCurrentView("home");
+      } else {
+        const slug = path.substring(1);
+        if (["privacidade", "termos", "cookies", "lgpd", "consentimento", "contato"].includes(slug)) {
+          setCurrentView(slug);
+        } else {
+          resolveAndSetPost(slug);
         }
       }
     }
-  }, [news, categories]);
+  }, [categories, resolveAndSetPost]);
 
   // Sync document.title for SEO and browser tabs
   useEffect(() => {
